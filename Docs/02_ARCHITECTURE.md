@@ -30,10 +30,10 @@ Lula_V1.mq5  (Main EA Shell — OnInit/OnTick/OnDeinit)
 │   ├── C_KAMAModule      — iAMA (Kaufman) adaptive moving average
 │   ├── CPriceZone        — Swing H/L supply & demand zone scanner
 │   └── Detectors/
-│       ├── CEngine1_Trend    — Trend context (KAMA slope + ATR)
-│       ├── CEngine2_Range    — Range boundaries (swing H/L)
-│       ├── CEngine3_Reversal — Reversal context detection
-│       └── CEngine4_Breakout — Breakout / momentum detection
+│       ├── CEngine1_SupplyDemand — Explosive moves (1 touch + 2xATR)
+│       ├── CEngine2_StandardSR   — Range boundaries (2+ touches)
+│       ├── CEngine3_WeeklyMacro  — Weekly macro levels (6-month H/L)
+│       └── C_RoleReversalMonitor — Broken level retest validation
 │
 ├── CPatternEngine        — Runs all detectors; returns best SPatternResult
 │   ├── C_PinBarDetector

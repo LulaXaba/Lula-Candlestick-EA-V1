@@ -27,7 +27,8 @@ A single misalignment = NO TRADE. This is the core edge.
 - 4H ATR must be > 50% of its 14-period average (market must be active).
 
 ## Step 4: 1H Structure Validation (Gate 5)
-- 1H chart must show a Break of Structure (BoS) or Change of Character (CHoCH)
+- **Override Clause**: If a Grade A Engulfing Bar is detected, bypass the 1H structure check completely and drop directly to 15M for execution.
+- Otherwise, 1H chart must show a Break of Structure (BoS) or Change of Character (CHoCH)
   in the direction of the trade.
 - No major 1H support/resistance level directly blocking the trade path.
 - Alignment score (C_AlignmentScorer) must be >= 70/100.

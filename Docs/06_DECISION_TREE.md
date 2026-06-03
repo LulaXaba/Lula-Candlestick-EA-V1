@@ -41,6 +41,7 @@ IsPatternDetected() == TRUE
 ### Gate 5: 1H Structure Valid
 ```
 Is1HStructureValid() == TRUE
+  → OR (SPatternResult.patternType == GRADE_A_ENGULFING) // Override Clause bypass
   → CStateMachine.isChoppy == false
   → CStateMachine.alignmentScore >= 70
   → (Sprint 4 TODO: BoS/CHoCH confirmed on 1H)

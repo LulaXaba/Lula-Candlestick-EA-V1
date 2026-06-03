@@ -12,10 +12,10 @@
 | `C_KAMAModule.mqh` | iAMA (KAMA) on current TF; exposes `GetKAMA()` |
 | `CPriceZone.mqh` | Swing H/L scan; zone rank; `IsAtSupplyZone()` / `IsAtDemandZone()` |
 | `CSensorArray.mqh` | Orchestrator; aggregates all into `SSensorData` via `GetData()` |
-| `Detectors/CEngine1_Trend.mqh` | KAMA slope + ATR trend detection |
-| `Detectors/CEngine2_Range.mqh` | Range boundary swing detection |
-| `Detectors/CEngine3_Reversal.mqh` | Reversal context (wicks, rejections) |
-| `Detectors/CEngine4_Breakout.mqh` | Breakout momentum detection |
+| `Detectors/CEngine1_SupplyDemand.mqh` | Supply/Demand detection (1 touch + 2xATR) |
+| `Detectors/CEngine2_StandardSR.mqh` | Standard S/R detection (2+ touches) |
+| `Detectors/CEngine3_WeeklyMacro.mqh` | Weekly macro levels (6-month H/L) |
+| `Detectors/C_RoleReversalMonitor.mqh` | Role reversal detection (broken level retests) |
 
 ### Acceptance Criteria
 - All files compile: **0 errors, 0 warnings**.

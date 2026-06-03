@@ -3,8 +3,8 @@
 ## Core Risk Parameters (EA Inputs)
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `inp_RiskPercent` | 1.0 | % of account balance risked per trade |
-| `inp_MaxDailyDrawdown` | 4.0 | % max daily drawdown before halt |
+| `inp_RiskPercent` | 1.0 | % of account balance risked per trade (1% Beginners, 2% Advanced, 0.5% VIX75) |
+| `inp_MaxDailyDrawdown` | 0.0 | % max daily drawdown (Note: Framework uses 2 consecutive losses rule instead) |
 | `inp_MaxTotalDrawdown` | 6.0 | % max total session drawdown before halt |
 | `inp_ATR_StopMultiplier` | 1.5 | ATR multiplier for stop loss distance |
 | `inp_MinRR` | 2.0 | Minimum acceptable Risk:Reward ratio |
@@ -22,10 +22,10 @@ Never hardcode tick value or lot step — always fetch from `SymbolInfoDouble()`
 
 ## Drawdown Guards (enforced in CRiskManager)
 
-### Daily Drawdown Check
-- Captured at session start: `m_dayOpenEquity = AccountInfoDouble(ACCOUNT_EQUITY)`.
-- On every new bar: `dailyLoss% = (m_dayOpenEquity - equity) / m_dayOpenEquity * 100`.
-- If `dailyLoss% >= inp_MaxDailyDrawdown` → close all trades, set HALT flag.
+### Daily Drawdown Check (Consecutive Loss Rule)
+- Maximum 2 consecutive losing trades per session.
+- Track consecutive losses across the daily session.
+- If consecutive losses >= 2 → close all trades, set HALT flag for the day, resume next session.
 
 ### Total Session Drawdown Check
 - Captured at `OnInit()`: `m_sessionStartEquity`.
