@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<project>
+   <name>Lula_V1</name>
+   <version>1.0.0</version>
+   <description>Lula Price Action Execution Engine V1.0 — Multi-Timeframe Candlestick EA</description>
+   <files>
+      <file>Lula_V1.mq5</file>
+      <file>Include/Defines.mqh</file>
+      <file>Include/DTOs.mqh</file>
+      <file>Sprint1_Sensors/CSensorArray.mqh</file>
+      <file>Sprint1_Sensors/C_ATRModule.mqh</file>
+      <file>Sprint1_Sensors/C_KAMAModule.mqh</file>
+      <file>Sprint1_Sensors/CPriceZone.mqh</file>
+      <file>Sprint1_Sensors/Detectors/CEngine1_SupplyDemand.mqh</file>
+      <file>Sprint1_Sensors/Detectors/CEngine2_StandardSR.mqh</file>
+      <file>Sprint1_Sensors/Detectors/CEngine3_WeeklyMacro.mqh</file>
+      <file>Sprint1_Sensors/Detectors/CEngine4_RoleReversal.mqh</file>
+      <file>Sprint2_Patterns/CPatternEngine.mqh</file>
+      <file>Sprint2_Patterns/C_PinBarDetector.mqh</file>
+      <file>Sprint2_Patterns/C_EngulfingDetector.mqh</file>
+      <file>Sprint2_Patterns/C_InsideBarDetector.mqh</file>
+      <file>Sprint2_Patterns/C_FalseBreakoutDetector.mqh</file>
+      <file>Sprint3_State/CStateMachine.mqh</file>
+      <file>Sprint3_State/C_ChoppyFilter.mqh</file>
+      <file>Sprint3_State/C_TrendAnalyzer.mqh</file>
+      <file>Sprint3_State/C_RangeAnalyzer.mqh</file>
+      <file>Sprint3_State/C_RetracementDetector.mqh</file>
+      <file>Sprint3_State/C_AlignmentScorer.mqh</file>
+      <file>Sprint4_Execution/CDecisionTree.mqh</file>
+      <file>Sprint4_Execution/CRiskManager.mqh</file>
+      <file>Sprint4_Execution/CTradeExecutor.mqh</file>
+      <file>Sprint4_Execution/CCorrelationFilter.mqh</file>
+   </files>
+</project>

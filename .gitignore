@@ -1,0 +1,18 @@
+# ── MetaEditor build artifacts ─────────────────────────────────────
+*.ex5
+*.log
+*.bak
+
+# ── Windows artifacts ───────────────────────────────────────────────
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# ── VS Code / editor settings ───────────────────────────────────────
+.vscode/
+*.swp
+*.swo
+*~
+
+# ── Temp scaffold scripts ───────────────────────────────────────────
+/scaffold_dirs.ps1
