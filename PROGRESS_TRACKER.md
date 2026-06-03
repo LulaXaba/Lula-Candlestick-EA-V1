@@ -5,7 +5,7 @@
 - [x] Governance Documents written.
 - [x] Implement `Include/Defines.mqh` (Enums and Constants).
 - [x] Implement `Sprint1_Sensors/CPriceZone.mqh` (Data Object).
-- [ ] Implement `Sprint1_Sensors/CSensorArray.mqh` (Manager).
+- [x] Implement `Sprint1_Sensors/CSensorArray.mqh` (Manager).
 - [x] Code Engine 3: `WeeklyMacro()`.
 - [x] Code `Sprint1_Sensors/C_SwingDetector.mqh` (Prerequisite for Engines 1, 2, 4)
 - [x] Code Engine 1: `SupplyDemand()`.

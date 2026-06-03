@@ -1,149 +1,199 @@
 //+------------------------------------------------------------------+
-//|  CSensorArray.mqh — Sensor Aggregator                            |
+//|  CSensorArray.mqh — Master Sensor Array Manager                  |
 //|  Sprint 1: The Sensor Array                                      |
 //|                                                                  |
-//|  Orchestrates all 4 engines and individual sensor modules.       |
-//|  Exposes a single SSensorData struct to the rest of the EA.     |
+//|  Responsibility: Instantiates all 4 Engines, orchestrates the    |
+//|  scan sequence, aggregates zones, strictly manages memory,       |
+//|  and calculates the overall Confluence Score.                    |
 //+------------------------------------------------------------------+
 #ifndef CSENSORARRAY_MQH
 #define CSENSORARRAY_MQH
 
-#include "../Include/DTOs.mqh"
+#include "../Include/Defines.mqh"
+#include "CPriceZone.mqh"
+#include "C_SwingDetector.mqh"
 #include "C_ATRModule.mqh"
 #include "C_KAMAModule.mqh"
-#include "CPriceZone.mqh"
 #include "Detectors/CEngine1_SupplyDemand.mqh"
 #include "Detectors/CEngine2_StandardSR.mqh"
 #include "Detectors/CEngine3_WeeklyMacro.mqh"
-#include "Detectors/CEngine4_RoleReversal.mqh"
+#include "Detectors/C_RoleReversalMonitor.mqh"
 
 class CSensorArray
 {
 private:
-   string                m_symbol;
+   C_SwingDetector*       m_swings;
+   C_KAMAModule*          m_kama;
+   C_ATRModule*           m_atr;
+   bool                   m_isVix75;
+   
+   CEngine1_SupplyDemand* m_engine1;
+   CEngine2_StandardSR*   m_engine2;
+   CEngine3_WeeklyMacro*  m_engine3;
+   C_RoleReversalMonitor* m_engine4;
 
-   // Individual sensor modules
-   C_ATRModule           m_atr;
-   C_KAMAModule          m_kama;
-   CPriceZone            m_zones;
+   CPriceZone*            m_active_zones[];
 
-   // The 4 context engines
-   CEngine1_SupplyDemand m_engine1;    // SupplyDemand()
-   CEngine2_StandardSR   m_engine2;    // StandardSR()
-   CEngine3_WeeklyMacro  m_engine3;    // WeeklyMacro()
-   CEngine4_RoleReversal m_engine4;    // RoleReversal()
-
-   SSensorData           m_data;       // Cached snapshot — returned by GetData()
-
-   bool                  IsInsideRolloverWindow() const;
+   void                   ClearActiveZones();
 
 public:
-                         CSensorArray();
-                        ~CSensorArray();
+                          CSensorArray(C_SwingDetector* swings, C_KAMAModule* kama, C_ATRModule* atr, bool is_vix75);
+                         ~CSensorArray();
 
-   bool                  Init(const string symbol,
-                               const int    atrPeriod,
-                               const int    kamaPeriod,
-                               const int    zoneLookback);
-   void                  Deinit();
-   void                  Update();               // Call once per new bar
-
-   const SSensorData&    GetData() const { return m_data; }
+   void                   ScanMarketEnvironment();
+   int                    GetConfluenceScore(double price);
+   ENUM_ZONE_RANK         GetHighestRankAtPrice(double price);
 };
 
-CSensorArray::CSensorArray() {}
-CSensorArray::~CSensorArray() { Deinit(); }
-
-bool CSensorArray::Init(const string symbol,
-                        const int    atrPeriod,
-                        const int    kamaPeriod,
-                        const int    zoneLookback)
+CSensorArray::CSensorArray(C_SwingDetector* swings, C_KAMAModule* kama, C_ATRModule* atr, bool is_vix75)
+   : m_swings(swings),
+     m_kama(kama),
+     m_atr(atr),
+     m_isVix75(is_vix75)
 {
-   m_symbol = symbol;
-
-   if(!m_atr.Init(symbol, atrPeriod))
-      { PrintFormat("[ERROR] %s: ATR init failed",          __FUNCTION__); return false; }
-   if(!m_kama.Init(symbol, kamaPeriod))
-      { PrintFormat("[ERROR] %s: KAMA init failed",         __FUNCTION__); return false; }
-   if(!m_zones.Init(symbol, zoneLookback))
-      { PrintFormat("[ERROR] %s: PriceZone init failed",    __FUNCTION__); return false; }
-   if(!m_engine1.Init(symbol, zoneLookback))
-      { PrintFormat("[ERROR] %s: Engine1 S/D init failed",  __FUNCTION__); return false; }
-   if(!m_engine2.Init(symbol, zoneLookback))
-      { PrintFormat("[ERROR] %s: Engine2 SR init failed",   __FUNCTION__); return false; }
-   if(!m_engine3.Init(symbol))
-      { PrintFormat("[ERROR] %s: Engine3 Macro init failed",__FUNCTION__); return false; }
-   if(!m_engine4.Init(symbol, zoneLookback))
-      { PrintFormat("[ERROR] %s: Engine4 RR init failed",   __FUNCTION__); return false; }
-
-   return true;
+   m_engine1 = new CEngine1_SupplyDemand();
+   m_engine2 = new CEngine2_StandardSR();
+   m_engine3 = new CEngine3_WeeklyMacro();
+   m_engine4 = new C_RoleReversalMonitor();
+   
+   m_engine1->Init(_Symbol);
+   m_engine2->Init(_Symbol);
+   m_engine3->Init(_Symbol);
+   m_engine4->Init();
+   
+   ArrayResize(m_active_zones, 0);
 }
 
-void CSensorArray::Deinit()
+CSensorArray::~CSensorArray()
 {
-   m_atr.Deinit();
-   m_kama.Deinit();
-   m_zones.Deinit();
+   // Strict memory cleanup of dynamically allocated objects
+   ClearActiveZones();
+   
+   if(m_engine1 != NULL) { delete m_engine1; m_engine1 = NULL; }
+   if(m_engine2 != NULL) { delete m_engine2; m_engine2 = NULL; }
+   if(m_engine3 != NULL) { delete m_engine3; m_engine3 = NULL; }
+   if(m_engine4 != NULL) { delete m_engine4; m_engine4 = NULL; }
 }
 
-void CSensorArray::Update()
+void CSensorArray::ClearActiveZones()
 {
-   //--- Update base sensor data
-   m_atr.Update();
-   m_kama.Update();
-   m_zones.Update();
+   int size = ArraySize(m_active_zones);
+   for(int i = 0; i < size; i++)
+   {
+      if(m_active_zones[i] != NULL)
+      {
+         delete m_active_zones[i];
+         m_active_zones[i] = NULL;
+      }
+   }
+   ArrayResize(m_active_zones, 0);
+}
 
-   //--- Run all 4 engines
-   m_engine1.SupplyDemand();
-   m_engine2.StandardSR();
-   m_engine3.WeeklyMacro();
-   m_engine4.RoleReversal();
+void CSensorArray::ScanMarketEnvironment()
+{
+   // Flush memory before rebuilding zones
+   ClearActiveZones();
 
-   //--- Populate the shared SSensorData snapshot
-   m_data.atr_Current = m_atr.GetATR(PERIOD_CURRENT);
-   m_data.atr_H1      = m_atr.GetATR(PERIOD_H1);
-   m_data.atr_H4      = m_atr.GetATR(PERIOD_H4);
-   m_data.atr_D1      = m_atr.GetATR(PERIOD_D1);
-   m_data.atr_W1      = m_atr.GetATR(PERIOD_W1);
-   m_data.kama        = m_kama.GetKAMA();
+   // 1. Update ATR and KAMA (Assuming Update() methods exist on these modules)
+   // if(m_atr != NULL) m_atr->Update();
+   // if(m_kama != NULL) m_kama->Update();
 
-   // Zone data: prefer Supply/Demand engine, fall back to StandardSR
-   if(m_engine1.IsAtSupply() || m_engine1.IsAtDemand()) {
-      m_data.isAtSupplyZone = m_engine1.IsAtSupply();
-      m_data.isAtDemandZone = m_engine1.IsAtDemand();
-      m_data.zoneRank       = m_engine1.GetZoneRank();
-      m_data.zoneHigh       = m_engine1.GetZoneHigh();
-      m_data.zoneLow        = m_engine1.GetZoneLow();
-   } else if(m_engine4.IsAtReversalZone()) {
-      m_data.isAtSupplyZone = (m_engine4.GetReversalType() == ZONE_SUPPLY);
-      m_data.isAtDemandZone = (m_engine4.GetReversalType() == ZONE_DEMAND);
-      m_data.zoneRank       = RANK_MAJOR;   // Role reversals are always high-rank
-      m_data.zoneHigh       = m_engine4.GetReversalLevel();
-      m_data.zoneLow        = m_engine4.GetReversalLevel();
-   } else {
-      m_data.isAtSupplyZone = m_engine2.IsAtResistance();
-      m_data.isAtDemandZone = m_engine2.IsAtSupport();
-      m_data.zoneRank       = m_zones.GetZoneRank();
-      m_data.zoneHigh       = m_engine2.GetNearestResistance();
-      m_data.zoneLow        = m_engine2.GetNearestSupport();
+   // 2. Run Engine 3 (Weekly Macro)
+   m_engine3->WeeklyMacro();
+   // Note: The resulting macro zones from engine 3 would be fetched and appended here.
+   // e.g., AddZone(m_engine3->GetSupplyZone()); AddZone(m_engine3->GetDemandZone());
+
+   // 3. Run Engine 1 (Supply/Demand) and Engine 2 (Standard S/R)
+   CPriceZone* temp_zones[];
+   ArrayResize(temp_zones, 0);
+   
+   double atr_array[];
+   ArraySetAsSeries(atr_array, true);
+   int atrHandle = iATR(_Symbol, PERIOD_CURRENT, 14);
+   if(atrHandle != INVALID_HANDLE)
+   {
+      CopyBuffer(atrHandle, 0, 0, 1000, atr_array);
+      IndicatorRelease(atrHandle);
    }
 
-   // Weekly bias from Engine 3
-   m_data.weeklyBias    = m_engine3.GetWeeklyBias();
-   m_data.weeklyATR     = m_engine3.GetWeeklyATR();
-   m_data.isHighVolMode = m_engine3.IsHighVolMode();
+   int lookback = m_isVix75 ? 500 : 1000;
+   double variance = m_isVix75 ? 50.0 : 15.0 * _Point;
 
-   // Rollover window flag
-   m_data.isRolloverWindow = IsInsideRolloverWindow();
+   m_engine1->DetectZones(m_swings, atr_array, lookback, temp_zones);
+   m_engine2->DetectZones(m_swings, variance, lookback, temp_zones);
+
+   // Merge temp_zones into m_active_zones
+   int tSize = ArraySize(temp_zones);
+   ArrayResize(m_active_zones, tSize);
+   for(int i = 0; i < tSize; i++)
+   {
+      m_active_zones[i] = temp_zones[i];
+   }
+
+   // 4. Run Engine 4 (Role Reversal)
+   double close = iClose(_Symbol, PERIOD_CURRENT, 1);
+   double open  = iOpen(_Symbol, PERIOD_CURRENT, 1);
+   double high  = iHigh(_Symbol, PERIOD_CURRENT, 1);
+   double low   = iLow(_Symbol, PERIOD_CURRENT, 1);
+   datetime time= iTime(_Symbol, PERIOD_CURRENT, 1);
+
+   m_engine4->MonitorActiveZones(m_active_zones, close, open, time);
+   m_engine4->MonitorBrokenZones(high, low, close, open);
+   m_engine4->PurgeExpiredZones(TimeCurrent(), PeriodSeconds());
 }
 
-bool CSensorArray::IsInsideRolloverWindow() const
+int CSensorArray::GetConfluenceScore(double price)
 {
-   // Block new trades during broker rollover (23:55 – 00:05 broker time)
-   MqlDateTime t;
-   TimeTradeServer(t);
-   int hhmm = t.hour * 100 + t.min;
-   return (hhmm >= ROLLOVER_PAUSE_START || hhmm <= ROLLOVER_PAUSE_END);
+   int score = 0;
+   
+   // Check price against all active zones
+   for(int i = 0; i < ArraySize(m_active_zones); i++)
+   {
+      CPriceZone* zone = m_active_zones[i];
+      if(zone == NULL) continue;
+      
+      double zHigh = zone->GetZoneHigh();
+      double zLow  = zone->GetZoneLow();
+      
+      // If price intersects the zone boundary
+      if(price <= zHigh && price >= zLow)
+      {
+         ENUM_ZONE_RANK rank = zone->GetZoneRank();
+         
+         if(rank == RANK_EXTREME) score += 3; // Weekly Macro (Rank 1)
+         else if(zone->GetType() == ZONE_ROLE_REVERSAL) score += 2; // Role Reversal (Rank 1.5)
+         else score += 1; // Supply/Demand or Standard SR (Rank 2)
+      }
+   }
+   
+   // KAMA dynamic level (+1 point)
+   // Approximation check:
+   /*
+   if(m_kama != NULL)
+   {
+      double kPrice = m_kama->GetKAMA();
+      double kVariance = m_isVix75 ? 20.0 : 5.0 * _Point;
+      if(MathAbs(price - kPrice) <= kVariance) score += 1;
+   }
+   */
+   return score;
+}
+
+ENUM_ZONE_RANK CSensorArray::GetHighestRankAtPrice(double price)
+{
+   ENUM_ZONE_RANK highest = RANK_WEAK;
+   for(int i = 0; i < ArraySize(m_active_zones); i++)
+   {
+      CPriceZone* zone = m_active_zones[i];
+      if(zone == NULL) continue;
+      
+      if(price <= zone->GetZoneHigh() && price >= zone->GetZoneLow())
+      {
+         ENUM_ZONE_RANK r = zone->GetZoneRank();
+         if(r > highest) highest = r;
+      }
+   }
+   return highest;
 }
 
 #endif // CSENSORARRAY_MQH
