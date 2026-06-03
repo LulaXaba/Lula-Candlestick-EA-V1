@@ -1,104 +1,129 @@
 //+------------------------------------------------------------------+
-//|  CEngine2_StandardSR.mqh — Engine 2: Standard S/R Levels        |
+//|  CEngine2_StandardSR.mqh — Engine 2: Standard S/R Levels         |
 //|  Sprint 1: The Sensor Array                                      |
 //|                                                                  |
-//|  Responsibility: Identify classic horizontal Support and         |
-//|  Resistance levels based on swing highs and lows.               |
+//|  Responsibility: Fractal Clustering Algorithm. Groups raw swings |
+//|  into valid S/R zones using a defined variance and 2-touch rule. |
 //+------------------------------------------------------------------+
 #ifndef CENGINE2_STANDARDSR_MQH
 #define CENGINE2_STANDARDSR_MQH
 
 #include "../../Include/Defines.mqh"
-#include "../../Include/DTOs.mqh"
+#include "../CPriceZone.mqh"
+#include "../C_SwingDetector.mqh"
 
 class CEngine2_StandardSR
 {
 private:
-   string   m_symbol;
-   int      m_lookback;
-   double   m_nearestResistance;
-   double   m_nearestSupport;
-   bool     m_isAtResistance;
-   bool     m_isAtSupport;
+   // Nested struct to handle mathematical grouping before OOP conversion
+   struct TemporaryCluster
+   {
+      double   centerPrice;
+      double   upperBound;
+      double   lowerBound;
+      int      touchCount;
+      bool     isSupply; // Helper flag to approximate ZONE_SUPPLY vs ZONE_DEMAND
+   };
 
-   void     ScanSwingLevels();
-   bool     IsSwingHigh(const int barIndex) const;
-   bool     IsSwingLow(const int barIndex)  const;
+   string            m_symbol;
+   ENUM_TIMEFRAMES   m_timeframe;
 
 public:
-            CEngine2_StandardSR();
-           ~CEngine2_StandardSR();
+                     CEngine2_StandardSR();
+                    ~CEngine2_StandardSR();
 
-   bool     Init(const string symbol, const int lookback);
-   void     Deinit();
+   bool              Init(const string symbol, ENUM_TIMEFRAMES tf = PERIOD_CURRENT);
+   void              Deinit();
 
-   // Called by CSensorArray::Update() — runs the StandardSR() scan
-   void     StandardSR();
-
-   double   GetNearestResistance() const { return m_nearestResistance; }
-   double   GetNearestSupport()    const { return m_nearestSupport;    }
-   bool     IsAtResistance()       const { return m_isAtResistance;    }
-   bool     IsAtSupport()          const { return m_isAtSupport;       }
+   void              DetectZones(C_SwingDetector* swings, double variance_pts, int lookback_bars, CPriceZone* &out_zones[]);
 };
 
 CEngine2_StandardSR::CEngine2_StandardSR()
-   : m_lookback(100),
-     m_nearestResistance(0.0),
-     m_nearestSupport(0.0),
-     m_isAtResistance(false),
-     m_isAtSupport(false) {}
-
-CEngine2_StandardSR::~CEngine2_StandardSR() { Deinit(); }
-
-bool CEngine2_StandardSR::Init(const string symbol, const int lookback)
 {
-   m_symbol   = symbol;
-   m_lookback = lookback;
+}
+
+CEngine2_StandardSR::~CEngine2_StandardSR()
+{
+   Deinit();
+}
+
+bool CEngine2_StandardSR::Init(const string symbol, ENUM_TIMEFRAMES tf)
+{
+   m_symbol    = symbol;
+   m_timeframe = tf;
    return true;
 }
 
-void CEngine2_StandardSR::Deinit() {}
-
-void CEngine2_StandardSR::StandardSR()
+void CEngine2_StandardSR::Deinit()
 {
-   ScanSwingLevels();
 }
 
-void CEngine2_StandardSR::ScanSwingLevels()
+void CEngine2_StandardSR::DetectZones(C_SwingDetector* swings, double variance_pts, int lookback_bars, CPriceZone* &out_zones[])
 {
-   // TODO Sprint 1: Implement swing high/low detection
-   // Algorithm:
-   // 1. Scan m_lookback bars for swing highs (local maxima) and swing lows (local minima)
-   // 2. A swing high: bar[i].High > bar[i-1].High && bar[i].High > bar[i+1].High
-   // 3. A swing low:  bar[i].Low  < bar[i-1].Low  && bar[i].Low  < bar[i+1].Low
-   // 4. Find nearest resistance above current price
-   // 5. Find nearest support below current price
-   // 6. Set m_isAtResistance / m_isAtSupport within ATR proximity tolerance
+   if(swings == NULL) return;
 
-   m_nearestResistance = 0.0;
-   m_nearestSupport    = 0.0;
-   m_isAtResistance    = false;
-   m_isAtSupport       = false;
-}
+   TemporaryCluster clusters[];
+   ArrayResize(clusters, 0);
 
-bool CEngine2_StandardSR::IsSwingHigh(const int barIndex) const
-{
-   // TODO Sprint 1: 3-bar swing high detection (expand to 5-bar for stronger levels)
-   if(barIndex < 1 || barIndex >= m_lookback) return false;
-   double hi   = iHigh(m_symbol, PERIOD_H4, barIndex);
-   double hiL  = iHigh(m_symbol, PERIOD_H4, barIndex + 1);
-   double hiR  = iHigh(m_symbol, PERIOD_H4, barIndex - 1);
-   return (hi > hiL && hi > hiR);
-}
+   // 1. Find Swings
+   for(int i = 1; i <= lookback_bars; i++)
+   {
+      bool isHigh = swings.IsSwingHigh(i);
+      bool isLow  = swings.IsSwingLow(i);
 
-bool CEngine2_StandardSR::IsSwingLow(const int barIndex) const
-{
-   // TODO Sprint 1: 3-bar swing low detection
-   if(barIndex < 1 || barIndex >= m_lookback) return false;
-   double lo   = iLow(m_symbol, PERIOD_H4, barIndex);
-   double loL  = iLow(m_symbol, PERIOD_H4, barIndex + 1);
-   double loR  = iLow(m_symbol, PERIOD_H4, barIndex - 1);
-   return (lo < loL && lo < loR);
+      if(!isHigh && !isLow) continue;
+
+      double price = isHigh ? iHigh(m_symbol, m_timeframe, i) : iLow(m_symbol, m_timeframe, i);
+      bool matched = false;
+
+      // 2. Cluster Match
+      for(int c = 0; c < ArraySize(clusters); c++)
+      {
+         if(MathAbs(price - clusters[c].centerPrice) <= variance_pts)
+         {
+            // 3. Merge: Expand bounds and increment touch count
+            clusters[c].upperBound = MathMax(clusters[c].upperBound, price);
+            clusters[c].lowerBound = MathMin(clusters[c].lowerBound, price);
+            clusters[c].touchCount++;
+            matched = true;
+            break;
+         }
+      }
+
+      // Create new cluster if no match
+      if(!matched)
+      {
+         int size = ArraySize(clusters);
+         ArrayResize(clusters, size + 1);
+         clusters[size].centerPrice = price;
+         clusters[size].upperBound  = price;
+         clusters[size].lowerBound  = price;
+         clusters[size].touchCount  = 1;
+         clusters[size].isSupply    = isHigh;
+      }
+   }
+
+   // 4. Filter and Create Zones
+   for(int c = 0; c < ArraySize(clusters); c++)
+   {
+      // Enforce strict 2-touch minimum
+      if(clusters[c].touchCount >= 2)
+      {
+         int outSize = ArraySize(out_zones);
+         ArrayResize(out_zones, outSize + 1);
+         
+         out_zones[outSize] = new CPriceZone();
+         out_zones[outSize].Init(m_symbol, lookback_bars);
+         
+         out_zones[outSize].SetZoneLimits(clusters[c].upperBound, clusters[c].lowerBound);
+         
+         // Rank: RANK_MINOR for 2-touch, RANK_MAJOR (2) for 3+ touches (Standard S/R weight)
+         ENUM_ZONE_RANK rank = (clusters[c].touchCount >= 3) ? RANK_MAJOR : RANK_MINOR;
+         ENUM_ZONE_TYPE type = clusters[c].isSupply ? ZONE_SUPPLY : ZONE_DEMAND;
+         
+         out_zones[outSize].SetRankAndType(rank, type);
+      }
+   }
 }
 
 #endif // CENGINE2_STANDARDSR_MQH
