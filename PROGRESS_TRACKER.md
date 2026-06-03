@@ -10,7 +10,7 @@
 - [x] Code `Sprint1_Sensors/C_SwingDetector.mqh` (Prerequisite for Engines 1, 2, 4)
 - [x] Code Engine 1: `SupplyDemand()`.
 - [x] Code Engine 2: `StandardSR()`.
-- [ ] Code Engine 4: `RoleReversal()`.
+- [x] Code Engine 4: `RoleReversal()`.
 
 ## SPRINT 2: Pattern Recognition (Pending)
 - [ ] `C_PinBarDetector.mqh`
