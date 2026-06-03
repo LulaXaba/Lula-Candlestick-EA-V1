@@ -1,118 +1,122 @@
 //+------------------------------------------------------------------+
-//|  CEngine1_SupplyDemand.mqh — Engine 1: Supply & Demand Zones    |
+//|  CEngine1_SupplyDemand.mqh — Engine 1: Supply & Demand Zones     |
 //|  Sprint 1: The Sensor Array                                      |
 //|                                                                  |
-//|  Responsibility: Identify and score institutional Supply and     |
-//|  Demand zones based on price origin (base candle) analysis.     |
+//|  Responsibility: Detects institutional order blocks via 1-touch  |
+//|  swing points followed by explosive 2.0x ATR displacement.       |
 //+------------------------------------------------------------------+
 #ifndef CENGINE1_SUPPLYDEMAND_MQH
 #define CENGINE1_SUPPLYDEMAND_MQH
 
 #include "../../Include/Defines.mqh"
-#include "../../Include/DTOs.mqh"
+#include "../CPriceZone.mqh"
+#include "../C_SwingDetector.mqh"
 
 class CEngine1_SupplyDemand
 {
 private:
-   string         m_symbol;
-   int            m_lookback;
-   ENUM_ZONE_TYPE m_detectedZoneType;
-   ENUM_ZONE_RANK m_detectedZoneRank;
-   double         m_zoneHigh;
-   double         m_zoneLow;
-
-   void           ScanZones();
-   bool           IsBaseCandle(const int barIndex) const;
-   int            CountTouches(const double zHigh, const double zLow) const;
+   string            m_symbol;
+   ENUM_TIMEFRAMES   m_timeframe;
 
 public:
-                  CEngine1_SupplyDemand();
-                 ~CEngine1_SupplyDemand();
+                     CEngine1_SupplyDemand();
+                    ~CEngine1_SupplyDemand();
 
-   bool           Init(const string symbol, const int lookback);
-   void           Deinit();
+   bool              Init(const string symbol, ENUM_TIMEFRAMES tf = PERIOD_CURRENT);
+   void              Deinit();
 
-   // Called by CSensorArray::Update() — runs the SupplyDemand() scan
-   void           SupplyDemand();
-
-   ENUM_ZONE_TYPE GetZoneType() const { return m_detectedZoneType; }
-   ENUM_ZONE_RANK GetZoneRank() const { return m_detectedZoneRank; }
-   double         GetZoneHigh() const { return m_zoneHigh; }
-   double         GetZoneLow()  const { return m_zoneLow;  }
-   bool           IsAtSupply()  const { return m_detectedZoneType == ZONE_SUPPLY; }
-   bool           IsAtDemand()  const { return m_detectedZoneType == ZONE_DEMAND; }
+   // MQL5 arrays passed by reference (atr_array should be set as series)
+   void              DetectZones(C_SwingDetector* swings, double &atr_array[], int lookback_bars, CPriceZone* &out_zones[]);
 };
 
 CEngine1_SupplyDemand::CEngine1_SupplyDemand()
-   : m_lookback(100),
-     m_detectedZoneType(ZONE_NONE),
-     m_detectedZoneRank(RANK_WEAK),
-     m_zoneHigh(0.0),
-     m_zoneLow(0.0) {}
-
-CEngine1_SupplyDemand::~CEngine1_SupplyDemand() { Deinit(); }
-
-bool CEngine1_SupplyDemand::Init(const string symbol, const int lookback)
 {
-   m_symbol   = symbol;
-   m_lookback = lookback;
+}
+
+CEngine1_SupplyDemand::~CEngine1_SupplyDemand()
+{
+   Deinit();
+}
+
+bool CEngine1_SupplyDemand::Init(const string symbol, ENUM_TIMEFRAMES tf)
+{
+   m_symbol    = symbol;
+   m_timeframe = tf;
    return true;
 }
 
-void CEngine1_SupplyDemand::Deinit() {}
-
-// Public entry point — called by CSensorArray
-void CEngine1_SupplyDemand::SupplyDemand()
+void CEngine1_SupplyDemand::Deinit()
 {
-   ScanZones();
 }
 
-void CEngine1_SupplyDemand::ScanZones()
+void CEngine1_SupplyDemand::DetectZones(C_SwingDetector* swings, double &atr_array[], int lookback_bars, CPriceZone* &out_zones[])
 {
-   // TODO Sprint 1: Implement Supply/Demand zone detection
-   // Algorithm:
-   // 1. Iterate bars from 1 to m_lookback
-   // 2. Identify "base candles": body < 30% of candle range (consolidation)
-   // 3. Check if base candle was followed by a strong impulse move
-   //    (next candle body > 2x base candle body = valid origin)
-   // 4. Supply zone: strong DOWN impulse after base = overhead supply
-   // 5. Demand zone: strong UP impulse after base = underlying demand
-   // 6. Zone boundaries = base candle High (zoneHigh) and Low (zoneLow)
-   // 7. Call CountTouches() to determine ENUM_ZONE_RANK
-   // 8. Check if current Ask/Bid is within zone boundaries
-   //    Supply: Ask >= zoneLow && Ask <= zoneHigh
-   //    Demand: Bid >= zoneLow && Bid <= zoneHigh
+   if(swings == NULL) return;
 
-   m_detectedZoneType = ZONE_NONE;
-   m_detectedZoneRank = RANK_WEAK;
-   m_zoneHigh = 0.0;
-   m_zoneLow  = 0.0;
-}
+   // Start from 2 to allow checking candles i-1 and i-2 for displacement
+   for(int i = 2; i <= lookback_bars; i++) 
+   {
+      bool isHigh = swings.IsSwingHigh(i);
+      bool isLow  = swings.IsSwingLow(i);
 
-bool CEngine1_SupplyDemand::IsBaseCandle(const int barIndex) const
-{
-   // TODO Sprint 1: Return true if body < 30% of total range
-   double open  = iOpen(m_symbol,  PERIOD_H4, barIndex);
-   double close = iClose(m_symbol, PERIOD_H4, barIndex);
-   double high  = iHigh(m_symbol,  PERIOD_H4, barIndex);
-   double low   = iLow(m_symbol,   PERIOD_H4, barIndex);
-   double body  = MathAbs(open - close);
-   double range = MathAbs(high - low);
-   if(range <= 0) return false;
-   return (body / range) < 0.30;
-}
+      if(!isHigh && !isLow) continue;
+      
+      // We need ATR at index i to check if subsequent candles expand >= 2 * ATR
+      double atr = atr_array[i];
+      if(atr <= 0) continue;
 
-int CEngine1_SupplyDemand::CountTouches(const double zHigh, const double zLow) const
-{
-   // TODO Sprint 1: Count how many candles have entered the zone boundary
-   // Touch = candle Low <= zHigh AND candle High >= zLow
-   int touches = 0;
-   for(int i = 1; i <= m_lookback; i++) {
-      double hi = iHigh(m_symbol, PERIOD_H4, i);
-      double lo = iLow(m_symbol,  PERIOD_H4, i);
-      if(lo <= zHigh && hi >= zLow) touches++;
+      bool isDisplaced = false;
+      
+      // Check displacement on candle i-1 or i-2 (the candles immediately after the swing)
+      for(int j = 1; j <= 2; j++)
+      {
+         int checkIdx = i - j;
+         if(checkIdx < 0) continue;
+         
+         double open  = iOpen(m_symbol, m_timeframe, checkIdx);
+         double close = iClose(m_symbol, m_timeframe, checkIdx);
+         double range = MathAbs(iHigh(m_symbol, m_timeframe, checkIdx) - iLow(m_symbol, m_timeframe, checkIdx));
+         double body  = MathAbs(close - open);
+         
+         if(isLow)
+         {
+            // Demand: bullish displacement
+            if(close > open && (body >= 2.0 * atr || range >= 2.0 * atr))
+            {
+               isDisplaced = true;
+               break;
+            }
+         }
+         else if(isHigh)
+         {
+            // Supply: bearish displacement
+            if(close < open && (body >= 2.0 * atr || range >= 2.0 * atr))
+            {
+               isDisplaced = true;
+               break;
+            }
+         }
+      }
+      
+      if(isDisplaced)
+      {
+         int outSize = ArraySize(out_zones);
+         ArrayResize(out_zones, outSize + 1);
+         
+         out_zones[outSize] = new CPriceZone();
+         out_zones[outSize].Init(m_symbol, lookback_bars);
+         
+         // Boundaries are the exact High and Low of the base candle (index i)
+         double baseHigh = iHigh(m_symbol, m_timeframe, i);
+         double baseLow  = iLow(m_symbol, m_timeframe, i);
+         
+         out_zones[outSize].SetZoneLimits(baseHigh, baseLow);
+         
+         // Weight: RANK_2_STANDARD maps to RANK_MAJOR (enum value 2) in Defines.mqh
+         ENUM_ZONE_TYPE type = isHigh ? ZONE_SUPPLY : ZONE_DEMAND;
+         out_zones[outSize].SetRankAndType(RANK_MAJOR, type);
+      }
    }
-   return touches;
 }
 
 #endif // CENGINE1_SUPPLYDEMAND_MQH

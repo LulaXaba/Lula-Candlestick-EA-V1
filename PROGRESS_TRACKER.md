@@ -8,7 +8,7 @@
 - [ ] Implement `Sprint1_Sensors/CSensorArray.mqh` (Manager).
 - [x] Code Engine 3: `WeeklyMacro()`.
 - [x] Code `Sprint1_Sensors/C_SwingDetector.mqh` (Prerequisite for Engines 1, 2, 4)
-- [ ] Code Engine 1: `SupplyDemand()`.
+- [x] Code Engine 1: `SupplyDemand()`.
 - [x] Code Engine 2: `StandardSR()`.
 - [ ] Code Engine 4: `RoleReversal()`.
 
