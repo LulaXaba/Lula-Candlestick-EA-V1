@@ -3,12 +3,13 @@
 ## SPRINT 1: The Sensor Array
 - [x] Project Architecture established.
 - [x] Governance Documents written.
-- [ ] Implement `Include/Defines.mqh` (Enums and Constants).
-- [ ] Implement `Sprint1_Sensors/CPriceZone.mqh` (Data Object).
+- [x] Implement `Include/Defines.mqh` (Enums and Constants).
+- [x] Implement `Sprint1_Sensors/CPriceZone.mqh` (Data Object).
 - [ ] Implement `Sprint1_Sensors/CSensorArray.mqh` (Manager).
-- [ ] Code Engine 3: `WeeklyMacro()`.
+- [x] Code Engine 3: `WeeklyMacro()`.
+- [x] Code `Sprint1_Sensors/C_SwingDetector.mqh` (Prerequisite for Engines 1, 2, 4)
 - [ ] Code Engine 1: `SupplyDemand()`.
-- [ ] Code Engine 2: `StandardSR()`.
+- [x] Code Engine 2: `StandardSR()`.
 - [ ] Code Engine 4: `RoleReversal()`.
 
 ## SPRINT 2: Pattern Recognition (Pending)
