@@ -68,3 +68,52 @@ if(CopyBuffer(m_handle, 0, 1, 1, buf) < 1) return;  // retry next bar
 1. Every sprint MUST include at least one `Print()`-based unit test logged to Journal.
 2. No sprint is marked complete until MetaEditor shows: **0 errors, 0 warnings**.
 3. Backtests must be run in MT5 Strategy Tester before Sprint 4 is marked complete.
+
+---
+
+## NEW RULE: The Implementation Contract Workflow
+
+> **You (the AI Agent) are strictly FORBIDDEN from writing unprompted feature code.**
+> No code may be written for any feature until its `Docs/Plans/` contract file has been read and acknowledged.
+
+### The Mandatory Feature Lifecycle
+```
+Feature Request
+      ↓
+Read Docs/Plans/<plan-file>.md   ← MUST happen first
+      ↓
+Acknowledge branch name
+      ↓
+Execute (write code strictly within Plan scope)
+      ↓
+Provide exact Git commit message
+      ↓
+Fill out Docs/12_PR_TEMPLATE.md  ← Proof of Definition of Done
+      ↓
+Merge to develop
+```
+
+### Step-by-Step Agent Instructions
+
+1. **Plan:** When assigned a feature, ask: *"Please confirm which `Docs/Plans/` file I should read."* Do not write a single line of code until you have read and quoted the Plan's Objective.
+
+2. **Branch:** Before coding, state the exact branch name: *"I am working on `feature/sprint1-engine3-weekly-macro`."*
+
+3. **Execute:** Write code that implements **only** what the Plan specifies. Nothing more. Nothing outside the Plan's defined Scope.
+
+4. **Commit:** Provide the exact commit message string from the Plan's Git Deliverables table.
+
+5. **Review:** Fill out `Docs/12_PR_TEMPLATE.md` with every checkbox ticked. Present it to prove the Definition of Done (`Docs/11_DEFINITION_OF_DONE.md`) has been met.
+
+### What This Prevents
+- Context window drift (AI forgets constraints mid-session).
+- Scope creep (AI modifies files outside the current feature).
+- Architectural violations (AI ignores SOLID / naming conventions).
+- Unverified merges (no code goes to `develop` without a completed PR checklist).
+
+### Example Trigger Prompt (use this exact format)
+```
+"Read HANDOVER.md. We are starting Sprint 1.
+Please read Docs/Plans/sprint1-engine3-weekly-macro.md
+and implement WeeklyMacro() inside CEngine3_WeeklyMacro."
+```

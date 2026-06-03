@@ -1,0 +1,13 @@
+# Normalise line endings: commit with LF, checkout with CRLF on Windows
+* text=auto
+
+# Force these to always be LF (MQL5 source files)
+*.mq5  text eol=lf
+*.mqh  text eol=lf
+
+# Force markdown to LF
+*.md   text eol=lf
+
+# Binary — never diff or convert
+*.ex5  binary
+*.bak  binary
