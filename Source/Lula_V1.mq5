@@ -17,12 +17,12 @@
 
 //--- Sprint modules
 #include "Sprint1_Sensors/CSensorArray.mqh"
-#include "Sprint2_Patterns/CPatternEngine.mqh"
-#include "Sprint3_State/CStateMachine.mqh"
-#include "Sprint4_Execution/CDecisionTree.mqh"
-#include "Sprint4_Execution/CRiskManager.mqh"
-#include "Sprint4_Execution/CTradeExecutor.mqh"
-#include "Sprint4_Execution/CCorrelationFilter.mqh"
+//#include "Sprint2_Patterns/CPatternEngine.mqh"
+//#include "Sprint3_State/CStateMachine.mqh"
+//#include "Sprint4_Execution/CDecisionTree.mqh"
+//#include "Sprint4_Execution/CRiskManager.mqh"
+//#include "Sprint4_Execution/CTradeExecutor.mqh"
+//#include "Sprint4_Execution/CCorrelationFilter.mqh"
 
 //+------------------------------------------------------------------+
 //| EA Input Parameters                                               |
