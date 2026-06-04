@@ -53,8 +53,9 @@ void CEngine1_SupplyDemand::DetectZones(C_SwingDetector* swings, double &atr_arr
 {
    if(swings == NULL) return;
 
-   // Start from 2 to allow checking candles i-1 and i-2 for displacement
-   for(int i = 2; i <= lookback_bars; i++) 
+   // Start from lookback_bars to allow checking candles i-1 and i-2 for displacement correctly in a series array
+   // ★ MODIFIED: [Framework Alignment] — Reversed loop direction to iterate from oldest to newest
+   for(int i = lookback_bars; i >= 2; i--) 
    {
       bool isHigh = swings.IsSwingHigh(i);
       bool isLow  = swings.IsSwingLow(i);

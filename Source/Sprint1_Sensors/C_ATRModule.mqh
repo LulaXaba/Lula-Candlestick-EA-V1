@@ -31,6 +31,7 @@ public:
    void     Deinit();
    void     Update();
    double   GetATR(const ENUM_TIMEFRAMES tf) const;
+   bool     GetATRBuffer(const ENUM_TIMEFRAMES tf, const int count, double &out_buffer[]) const;
 };
 
 //--- Constructor
@@ -112,6 +113,27 @@ double C_ATRModule::GetATR(const ENUM_TIMEFRAMES tf) const
       case PERIOD_W1: return m_atr_W1;
       default:        return m_atr_Current;
    }
+}
+
+//--- Fetch historical ATR buffer without creating new handles
+bool C_ATRModule::GetATRBuffer(const ENUM_TIMEFRAMES tf, const int count, double &out_buffer[]) const
+{
+   int handle = INVALID_HANDLE;
+   switch(tf)
+   {
+      case PERIOD_H1: handle = m_handle_H1; break;
+      case PERIOD_H4: handle = m_handle_H4; break;
+      case PERIOD_D1: handle = m_handle_D1; break;
+      case PERIOD_W1: handle = m_handle_W1; break;
+      default:        handle = m_handle_Current; break;
+   }
+   
+   if(handle == INVALID_HANDLE) return false;
+   
+   ArraySetAsSeries(out_buffer, true);
+   if(CopyBuffer(handle, 0, 1, count, out_buffer) < count) return false;
+   
+   return true;
 }
 
 #endif // C_ATRMODULE_MQH

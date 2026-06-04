@@ -66,7 +66,8 @@ void CEngine2_StandardSR::DetectZones(C_SwingDetector* swings, double variance_p
    ArrayResize(clusters, 0);
 
    // 1. Find Swings
-   for(int i = 1; i <= lookback_bars; i++)
+   // ★ MODIFIED: [Framework Alignment] — Reversed loop direction to iterate from oldest to newest
+   for(int i = lookback_bars; i >= 1; i--)
    {
       bool isHigh = swings.IsSwingHigh(i);
       bool isLow  = swings.IsSwingLow(i);

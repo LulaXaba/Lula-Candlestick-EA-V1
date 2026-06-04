@@ -26,7 +26,7 @@ private:
    CPriceZone*      m_macroHighZone;
    CPriceZone*      m_macroLowZone;
 
-   void             AnalyseWeeklyBias(double weekly_atr);
+   void             AnalyseWeeklyBias(double weekly_atr, double avg_weekly_atr);
    bool             IsWeeklyDoji(const int barIndex) const;
 
 public:
@@ -37,10 +37,10 @@ public:
    void             Deinit();
 
    // Main entry point for CSensorArray
-   void             WeeklyMacro(double weekly_atr);
+   void             WeeklyMacro(double weekly_atr, double avg_weekly_atr);
    
    // Core logic execution method
-   void             RunEngine3_WeeklyMacro(double weekly_atr); 
+   void             RunEngine3_WeeklyMacro(double weekly_atr, double avg_weekly_atr); 
 
    ENUM_WEEKLY_BIAS GetWeeklyBias()  const { return m_weeklyBias;  }
    double           GetWeeklyHigh()  const { return m_weeklyHigh;  }
@@ -94,14 +94,14 @@ void CEngine3_WeeklyMacro::Deinit()
    }
 }
 
-void CEngine3_WeeklyMacro::WeeklyMacro(double weekly_atr)
+void CEngine3_WeeklyMacro::WeeklyMacro(double weekly_atr, double avg_weekly_atr)
 {
-   RunEngine3_WeeklyMacro(weekly_atr);
+   RunEngine3_WeeklyMacro(weekly_atr, avg_weekly_atr);
 }
 
-void CEngine3_WeeklyMacro::RunEngine3_WeeklyMacro(double weekly_atr)
+void CEngine3_WeeklyMacro::RunEngine3_WeeklyMacro(double weekly_atr, double avg_weekly_atr)
 {
-   AnalyseWeeklyBias(weekly_atr);
+   AnalyseWeeklyBias(weekly_atr, avg_weekly_atr);
    
    if(m_macroHighZone == NULL) m_macroHighZone = new CPriceZone();
    if(m_macroLowZone == NULL) m_macroLowZone = new CPriceZone();
@@ -109,14 +109,15 @@ void CEngine3_WeeklyMacro::RunEngine3_WeeklyMacro(double weekly_atr)
    m_macroHighZone->Init(m_symbol, WEEKLY_MACRO_LOOKBACK);
    m_macroLowZone->Init(m_symbol, WEEKLY_MACRO_LOOKBACK);
    
-   // ★ MODIFIED: [Task P2] — Setters logic for CPriceZone
+   // ★ MODIFIED: [Framework Alignment] — Setters logic for CPriceZone with width variance
+   double zoneWidth = weekly_atr * 0.1;
    m_macroHighZone->SetRankAndType(RANK_EXTREME, ZONE_SUPPLY);
-   m_macroHighZone->SetZoneLimits(m_weeklyHigh, m_weeklyHigh);
+   m_macroHighZone->SetZoneLimits(m_weeklyHigh + zoneWidth, m_weeklyHigh - zoneWidth);
    m_macroLowZone->SetRankAndType(RANK_EXTREME, ZONE_DEMAND);
-   m_macroLowZone->SetZoneLimits(m_weeklyLow, m_weeklyLow);
+   m_macroLowZone->SetZoneLimits(m_weeklyLow + zoneWidth, m_weeklyLow - zoneWidth);
 }
 
-void CEngine3_WeeklyMacro::AnalyseWeeklyBias(double weekly_atr)
+void CEngine3_WeeklyMacro::AnalyseWeeklyBias(double weekly_atr, double avg_weekly_atr)
 {
    double open  = iOpen(m_symbol,  PERIOD_W1, 1);
    double close = iClose(m_symbol, PERIOD_W1, 1);
@@ -145,8 +146,12 @@ void CEngine3_WeeklyMacro::AnalyseWeeklyBias(double weekly_atr)
    if(highestIdx >= 0) m_weeklyHigh = iHigh(m_symbol, PERIOD_W1, highestIdx);
    if(lowestIdx >= 0)  m_weeklyLow  = iLow(m_symbol, PERIOD_W1, lowestIdx);
    
-   // ★ REMOVED: [Task P8] — Removed temporary iATR handle creation, using passed weekly_atr parameter
+   // ★ MODIFIED: [Framework Alignment] — High volatility mode calculation re-enabled
    m_weeklyATR = weekly_atr;
+   if(avg_weekly_atr > 0)
+   {
+      m_highVolMode = (m_weeklyATR > (avg_weekly_atr * 2.0));
+   }
 }
 
 bool CEngine3_WeeklyMacro::IsWeeklyDoji(const int barIndex) const

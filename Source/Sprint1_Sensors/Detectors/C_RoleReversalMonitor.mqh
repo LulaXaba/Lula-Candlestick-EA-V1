@@ -129,8 +129,9 @@ void C_RoleReversalMonitor::MonitorBrokenZones(double high, double low, double c
       // else if(origType == ZONE_DEMAND && close < open && close < zLow) validRejection = true;
       
       // Fallback pseudo-logic: evaluate rejection strictly by close vs open and zone limits
-      if(close > open && close > zHigh) validRejection = true; // Bullish rejection out of broken resistance
-      if(close < open && close < zLow) validRejection = true;  // Bearish rejection out of broken support
+      // ★ MODIFIED: [Framework Alignment] — Clarified comments. Broken resistance becomes support (bullish rejection). Broken support becomes resistance (bearish rejection).
+      if(close > open && close > zHigh) validRejection = true; // Broken resistance retested as support -> Bullish rejection
+      if(close < open && close < zLow) validRejection = true;  // Broken support retested as resistance -> Bearish rejection
 
       if(validRejection)
       {

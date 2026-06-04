@@ -47,6 +47,7 @@ public:
    void           SetZoneLimits(double upper, double lower);
    void           SetRankAndType(ENUM_ZONE_RANK rank, ENUM_ZONE_TYPE type);
    ENUM_ZONE_TYPE GetType()         const { return m_type;       }
+   bool           IsActive()        const { return m_is_active;  }
    int            GetTouchCount()   const { return m_touch_count;}
    void           IncrementTouchCount()   { m_touch_count++;     }
    void           BreakZone(datetime break_time);
@@ -92,9 +93,8 @@ void CPriceZone::DetectZones()
 
    m_isAtSupply = false;
    m_isAtDemand = false;
-   m_rank       = RANK_WEAK;
-   m_zoneHigh   = 0.0;
-   m_zoneLow    = 0.0;
+   // Note: Engine-set values like m_rank, m_zoneHigh, and m_zoneLow 
+   // should not be reset here as they are managed externally by engines.
 }
 
 // ★ REMOVED: [Task P7] — CountZoneTouches implementation removed
@@ -138,6 +138,7 @@ void CPriceZone::ValidateRetest()
 
 bool CPriceZone::IsPriceInsideZone(double price) const
 {
+   if(m_is_broken) return false;
    if(m_zoneHigh == 0.0 || m_zoneLow == 0.0) return false;
    return (price >= m_zoneLow && price <= m_zoneHigh);
 }
