@@ -125,12 +125,18 @@ enum ENUM_GATE_ID
 #define ADX_CHOPPY_THRESHOLD     20.0   // ADX(14) H4 below this = choppy, no trades
 #define ALIGNMENT_MIN_SCORE      70     // Minimum multi-TF alignment score — Gate 5
 #define DAILY_REJECTION_WICK_PCT 0.60   // Daily wick > 60% of range = rejection candle
+// ★ ADDED: [Task P5] — Weekly thresholds
+#define WEEKLY_DOJI_THRESHOLD       0.05
+#define WEEKLY_NEUTRAL_THRESHOLD    0.20
 
 //+------------------------------------------------------------------+
 //| KAMA (Kaufman Adaptive Moving Average) Parameters                 |
 //+------------------------------------------------------------------+
 #define KAMA_FAST_PERIOD         2      // Fast EMA period
 #define KAMA_SLOW_PERIOD         30     // Slow EMA period
+// ★ ADDED: [Task P5] — KAMA confluence variance constants
+#define KAMA_CONFLUENCE_VARIANCE_VIX75    20.0
+#define KAMA_CONFLUENCE_VARIANCE_FOREX    5.0
 
 //+------------------------------------------------------------------+
 //| Fibonacci Retracement Levels                                      |

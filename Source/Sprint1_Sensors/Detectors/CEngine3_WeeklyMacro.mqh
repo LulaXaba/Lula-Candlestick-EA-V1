@@ -26,7 +26,7 @@ private:
    CPriceZone*      m_macroHighZone;
    CPriceZone*      m_macroLowZone;
 
-   void             AnalyseWeeklyBias();
+   void             AnalyseWeeklyBias(double weekly_atr);
    bool             IsWeeklyDoji(const int barIndex) const;
 
 public:
@@ -37,16 +37,20 @@ public:
    void             Deinit();
 
    // Main entry point for CSensorArray
-   void             WeeklyMacro();
+   void             WeeklyMacro(double weekly_atr);
    
    // Core logic execution method
-   void             RunEngine3_WeeklyMacro(); 
+   void             RunEngine3_WeeklyMacro(double weekly_atr); 
 
    ENUM_WEEKLY_BIAS GetWeeklyBias()  const { return m_weeklyBias;  }
    double           GetWeeklyHigh()  const { return m_weeklyHigh;  }
    double           GetWeeklyLow()   const { return m_weeklyLow;   }
    double           GetWeeklyATR()   const { return m_weeklyATR;   }
    bool             IsHighVolMode()  const { return m_highVolMode; }
+
+   // ★ ADDED: [Task P2] — Macro Zone Getters
+   CPriceZone*      GetMacroHighZone() const { return m_macroHighZone; }
+   CPriceZone*      GetMacroLowZone()  const { return m_macroLowZone;  }
 };
 
 CEngine3_WeeklyMacro::CEngine3_WeeklyMacro()
@@ -90,14 +94,14 @@ void CEngine3_WeeklyMacro::Deinit()
    }
 }
 
-void CEngine3_WeeklyMacro::WeeklyMacro()
+void CEngine3_WeeklyMacro::WeeklyMacro(double weekly_atr)
 {
-   RunEngine3_WeeklyMacro();
+   RunEngine3_WeeklyMacro(weekly_atr);
 }
 
-void CEngine3_WeeklyMacro::RunEngine3_WeeklyMacro()
+void CEngine3_WeeklyMacro::RunEngine3_WeeklyMacro(double weekly_atr)
 {
-   AnalyseWeeklyBias();
+   AnalyseWeeklyBias(weekly_atr);
    
    if(m_macroHighZone == NULL) m_macroHighZone = new CPriceZone();
    if(m_macroLowZone == NULL) m_macroLowZone = new CPriceZone();
@@ -105,12 +109,14 @@ void CEngine3_WeeklyMacro::RunEngine3_WeeklyMacro()
    m_macroHighZone->Init(m_symbol, WEEKLY_MACRO_LOOKBACK);
    m_macroLowZone->Init(m_symbol, WEEKLY_MACRO_LOOKBACK);
    
-   // Note: Requires adding Setters in CPriceZone to assign properties properly.
-   // Assuming a future setter: m_macroHighZone->SetZone(m_weeklyHigh, RANK_EXTREME, ZONE_SUPPLY);
-   // Assuming a future setter: m_macroLowZone->SetZone(m_weeklyLow, RANK_EXTREME, ZONE_DEMAND);
+   // ★ MODIFIED: [Task P2] — Setters logic for CPriceZone
+   m_macroHighZone->SetRankAndType(RANK_EXTREME, ZONE_SUPPLY);
+   m_macroHighZone->SetZoneLimits(m_weeklyHigh, m_weeklyHigh);
+   m_macroLowZone->SetRankAndType(RANK_EXTREME, ZONE_DEMAND);
+   m_macroLowZone->SetZoneLimits(m_weeklyLow, m_weeklyLow);
 }
 
-void CEngine3_WeeklyMacro::AnalyseWeeklyBias()
+void CEngine3_WeeklyMacro::AnalyseWeeklyBias(double weekly_atr)
 {
    double open  = iOpen(m_symbol,  PERIOD_W1, 1);
    double close = iClose(m_symbol, PERIOD_W1, 1);
@@ -119,7 +125,8 @@ void CEngine3_WeeklyMacro::AnalyseWeeklyBias()
    double body  = MathAbs(open - close);
    double range = MathAbs(high - low);
    
-   if(IsWeeklyDoji(1) || body <= (range * 0.20))
+   // ★ MODIFIED: [Task P5] — Replaced 0.20 magic number with WEEKLY_NEUTRAL_THRESHOLD
+   if(IsWeeklyDoji(1) || body <= (range * WEEKLY_NEUTRAL_THRESHOLD))
    {
       m_weeklyBias = BIAS_NEUTRAL;
    }
@@ -138,22 +145,8 @@ void CEngine3_WeeklyMacro::AnalyseWeeklyBias()
    if(highestIdx >= 0) m_weeklyHigh = iHigh(m_symbol, PERIOD_W1, highestIdx);
    if(lowestIdx >= 0)  m_weeklyLow  = iLow(m_symbol, PERIOD_W1, lowestIdx);
    
-   double atrArr[];
-   ArraySetAsSeries(atrArr, true);
-   int atrHandle = iATR(m_symbol, PERIOD_W1, 14);
-   if(atrHandle != INVALID_HANDLE)
-   {
-      if(CopyBuffer(atrHandle, 0, 1, 15, atrArr) >= 15)
-      {
-         m_weeklyATR = atrArr[0];
-         double sum = 0;
-         for(int i=1; i<=14; i++) sum += atrArr[i];
-         double avgATR = sum / 14.0;
-         
-         m_highVolMode = (m_weeklyATR > (avgATR * 2.0));
-      }
-      IndicatorRelease(atrHandle);
-   }
+   // ★ REMOVED: [Task P8] — Removed temporary iATR handle creation, using passed weekly_atr parameter
+   m_weeklyATR = weekly_atr;
 }
 
 bool CEngine3_WeeklyMacro::IsWeeklyDoji(const int barIndex) const
@@ -165,7 +158,8 @@ bool CEngine3_WeeklyMacro::IsWeeklyDoji(const int barIndex) const
    double body  = MathAbs(open - close);
    double range = MathAbs(high - low);
    if(range <= 0) return true;  
-   return (body / range) < 0.05;
+   // ★ MODIFIED: [Task P5] — Replaced 0.05 magic number with WEEKLY_DOJI_THRESHOLD
+   return (body / range) < WEEKLY_DOJI_THRESHOLD;
 }
 
 #endif // CENGINE3_WEEKLYMACRO_MQH

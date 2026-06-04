@@ -17,11 +17,17 @@ private:
    ENUM_ZONE_RANK m_rank;
    double         m_zoneHigh;
    double         m_zoneLow;
+   // ★ ADDED: [Task P1] — Missing properties
+   ENUM_ZONE_TYPE m_type;
+   bool           m_is_active;
+   bool           m_is_broken;
+   bool           m_retest_valid;
+   datetime       m_break_time;
+   int            m_touch_count;
 
    //--- Internal helpers
    void           DetectZones();
-   int            CountZoneTouches(const double zHigh, const double zLow,
-                                   const int startBar, const int bars) const;
+   // ★ REMOVED: [Task P7] — CountZoneTouches stub removed, managed by Engine 2 via IncrementTouchCount
 
 public:
                   CPriceZone();
@@ -36,11 +42,26 @@ public:
    ENUM_ZONE_RANK GetZoneRank()     const { return m_rank;       }
    double         GetZoneHigh()     const { return m_zoneHigh;   }
    double         GetZoneLow()      const { return m_zoneLow;    }
+
+   // ★ ADDED: [Task P1] — Missing CPriceZone methods required by Engines
+   void           SetZoneLimits(double upper, double lower);
+   void           SetRankAndType(ENUM_ZONE_RANK rank, ENUM_ZONE_TYPE type);
+   ENUM_ZONE_TYPE GetType()         const { return m_type;       }
+   int            GetTouchCount()   const { return m_touch_count;}
+   void           IncrementTouchCount()   { m_touch_count++;     }
+   void           BreakZone(datetime break_time);
+   void           ValidateRetest();
+   bool           IsBroken()        const { return m_is_broken;  }
+   bool           IsRetestValid()   const { return m_retest_valid;}
+   datetime       GetBreakTime()    const { return m_break_time; }
+   bool           IsPriceInsideZone(double price) const;
 };
 
 CPriceZone::CPriceZone()
    : m_lookback(100), m_isAtSupply(false), m_isAtDemand(false),
-     m_rank(RANK_WEAK), m_zoneHigh(0.0), m_zoneLow(0.0) {}
+     m_rank(RANK_WEAK), m_zoneHigh(0.0), m_zoneLow(0.0),
+     m_type(ZONE_NONE), m_is_active(true), m_is_broken(false),
+     m_retest_valid(false), m_break_time(0), m_touch_count(0) {}
 
 CPriceZone::~CPriceZone() { Deinit(); }
 
@@ -76,12 +97,49 @@ void CPriceZone::DetectZones()
    m_zoneLow    = 0.0;
 }
 
-int CPriceZone::CountZoneTouches(const double zHigh, const double zLow,
-                                   const int startBar, const int bars) const
+// ★ REMOVED: [Task P7] — CountZoneTouches implementation removed
+
+// ★ ADDED: [Task P1] — Missing CPriceZone method implementations
+void CPriceZone::SetZoneLimits(double upper, double lower)
 {
-   // TODO Sprint 1: Count how many times price has entered the zone boundary
-   // A "touch" = candle low <= zHigh AND candle high >= zLow
-   return 0;
+   if(upper < lower)
+   {
+      m_zoneHigh = lower;
+      m_zoneLow = upper;
+   }
+   else
+   {
+      m_zoneHigh = upper;
+      m_zoneLow = lower;
+   }
+}
+
+void CPriceZone::SetRankAndType(ENUM_ZONE_RANK rank, ENUM_ZONE_TYPE type)
+{
+   m_rank = rank;
+   m_type = type;
+}
+
+void CPriceZone::BreakZone(datetime break_time)
+{
+   m_is_broken = true;
+   m_is_active = false;
+   m_break_time = break_time;
+}
+
+void CPriceZone::ValidateRetest()
+{
+   if(m_is_broken)
+   {
+      m_retest_valid = true;
+      m_type = ZONE_ROLE_REVERSAL;
+   }
+}
+
+bool CPriceZone::IsPriceInsideZone(double price) const
+{
+   if(m_zoneHigh == 0.0 || m_zoneLow == 0.0) return false;
+   return (price >= m_zoneLow && price <= m_zoneHigh);
 }
 
 #endif // CPRICEZONE_MQH

@@ -28,7 +28,11 @@ public:
    void              Deinit();
 
    // Checks if an active standard S/R zone has been cleanly broken by the candle body
-   void              MonitorActiveZones(CPriceZone* &active_zones[], double close, double open, datetime time);
+   // ★ MODIFIED: [Task P9] — Added atr_h4 parameter
+   void              MonitorActiveZones(CPriceZone* &active_zones[], double close, double open, datetime time, double atr_h4);
+   
+   // ★ ADDED: [Task P4] — Clears watchlist without deleting objects
+   void              FlushWatchlist();
    
    // Checks if broken zones have been successfully retested
    void              MonitorBrokenZones(double high, double low, double close, double open);
@@ -61,7 +65,12 @@ void C_RoleReversalMonitor::Deinit()
    ArrayResize(m_broken_zones, 0);
 }
 
-void C_RoleReversalMonitor::MonitorActiveZones(CPriceZone* &active_zones[], double close, double open, datetime time)
+void C_RoleReversalMonitor::FlushWatchlist()
+{
+   ArrayResize(m_broken_zones, 0);
+}
+
+void C_RoleReversalMonitor::MonitorActiveZones(CPriceZone* &active_zones[], double close, double open, datetime time, double atr_h4)
 {
    for(int i = 0; i < ArraySize(active_zones); i++)
    {
@@ -75,14 +84,18 @@ void C_RoleReversalMonitor::MonitorActiveZones(CPriceZone* &active_zones[], doub
       double zHigh = zone.GetZoneHigh();
       double zLow  = zone.GetZoneLow();
       
-      // Clean body breakout check
+      // Clean body breakout check (Primary)
       bool brokenUp   = (open < zLow && close > zHigh);
       bool brokenDown = (open > zHigh && close < zLow);
       
-      if(brokenUp || brokenDown)
+      // ★ ADDED: [Task P9] — Secondary breakout condition
+      bool brokenUpSecondary = (open <= zHigh) && (close > zHigh + (atr_h4 * 0.5)) && (close > open);
+      bool brokenDownSecondary = (open >= zLow) && (close < zLow - (atr_h4 * 0.5)) && (close < open);
+      
+      if(brokenUp || brokenDown || brokenUpSecondary || brokenDownSecondary)
       {
-         // Mark the zone as broken (requires adding BreakZone to CPriceZone)
-         // zone->BreakZone(time); 
+         // Mark the zone as broken
+         zone.BreakZone(time); 
          
          int size = ArraySize(m_broken_zones);
          ArrayResize(m_broken_zones, size + 1);
@@ -121,8 +134,8 @@ void C_RoleReversalMonitor::MonitorBrokenZones(double high, double low, double c
 
       if(validRejection)
       {
-         // Validates the retest and elevates rank (requires adding ValidateRetest to CPriceZone)
-         // zone->ValidateRetest();
+         // Validates the retest and elevates rank
+         zone.ValidateRetest();
          RemoveZoneFromWatchlist(i);
       }
    }
@@ -137,9 +150,8 @@ void C_RoleReversalMonitor::PurgeExpiredZones(datetime current_time, int timefra
       CPriceZone* zone = m_broken_zones[i];
       if(zone == NULL) continue;
       
-      // Check expiration (requires adding GetBreakTime to CPriceZone)
-      // datetime breakTime = zone->GetBreakTime();
-      datetime breakTime = 0; // Placeholder
+      // Check expiration
+      datetime breakTime = zone.GetBreakTime();
       
       if(breakTime > 0 && (current_time - breakTime > max_seconds))
       {
