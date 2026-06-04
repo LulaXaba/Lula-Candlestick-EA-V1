@@ -1,4 +1,4 @@
-# 01 — Project Overview
+# 01 — Project Overview: Lula Price Action Execution Engine V1.0
 
 ## Core Goals
 1. **Automate** the Lula price action methodology end-to-end.
@@ -19,6 +19,28 @@ The EA is **FORBIDDEN** from placing a trade unless:
 - **Rule-based, not discretionary.** Every decision is a boolean gate.
 - **ATR-relative stops.** No fixed pip stops. Adapts to market volatility.
 - **Zero magic numbers.** All parameters are exposed as EA inputs or named constants.
+
+## Memory Ownership Contract (MANDATORY — enforced from Sprint 1)
+This contract is non-negotiable and must be preserved across all future sprints.
+Any AI-generated code that violates these rules introduces memory leaks or dangling pointers.
+
+| Owner | Objects Owned | Deletion Responsibility |
+|-------|--------------|------------------------|
+| `CSensorArray` | All `CPriceZone*` in `m_active_zones[]` | `ClearActiveZones()` — called at the start of every scan |
+| `CSensorArray` | All 4 engine instances (`m_e1_sd`, `m_e2_sr`, `m_e3_wm`, `m_e4_rr`) | Destructor `~CSensorArray()` |
+| `CEngine3_WeeklyMacro` | `m_macroHighZone*`, `m_macroLowZone*` | `Deinit()` — **excluded** from `CSensorArray::ClearActiveZones()` |
+| `C_RoleReversalMonitor` | **Nothing** — holds non-owning references only | Must call `FlushWatchlist()` **before** `ClearActiveZones()` |
+| `CPatternEngine` | All 7 detector instances + 2 context reader instances | Destructor `~CPatternEngine()` |
+
+### MQL5 Strict Array Rule
+> **ALL `CopyBuffer()` calls MUST use dynamic arrays.**
+> Static arrays (`double buf[N]`) are rejected by MQL5's strict mode with
+> "cannot be used for static allocated array". Always use:
+> ```cpp
+> double buf[];
+> ArrayResize(buf, N);
+> CopyBuffer(handle, 0, offset, count, buf);
+> ```
 
 ## Success Criteria (Sprint 4 Complete)
 - EA compiles and runs without errors in MetaEditor / MT5.

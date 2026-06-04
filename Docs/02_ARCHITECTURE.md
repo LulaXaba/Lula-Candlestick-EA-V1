@@ -35,11 +35,23 @@ Lula_V1.mq5  (Main EA Shell — OnInit/OnTick/OnDeinit)
 │       ├── CEngine3_WeeklyMacro  — Weekly macro levels (6-month H/L)
 │       └── C_RoleReversalMonitor — Broken level retest validation
 │
-├── CPatternEngine        — Runs all detectors; returns best SPatternResult
-│   ├── C_PinBarDetector
-│   ├── C_EngulfingDetector
-│   ├── C_InsideBarDetector
-│   └── C_FalseBreakoutDetector
+├── CPatternEngine        — Orchestrator; runs all detectors; returns highest-tier CPatternResult
+│   │
+│   ├── Detectors/ (7 total — Tier-ranked by institutional weight)
+│   │   ├── C_EngulfingDetector       — [Tier 1] Grade A body engulf; sets isGradeA flag
+│   │   ├── C_FalseBreakoutDetector   — [Tier 1] Zone pierce + close-back (liquidity sweep)
+│   │   ├── C_ForceBarDetector        — [Tier 1] Single full-body directional candle (≥ 2×ATR)
+│   │   ├── C_DoubleCandleDetector    — [Tier 1] DBLHC (bullish) / DBHLC (bearish) two-candle
+│   │   ├── C_PinBarDetector          — [Tier 2] Wick-ratio test; wick ≥ PINBAR_MIN_WICK_RATIO
+│   │   ├── C_StarPatternDetector     — [Tier 2] Morning Star / Evening Star (3-candle)
+│   │   └── C_InsideBarDetector       — [Tier 3] Inside range; direction from bias alignment
+│   │
+│   ├── ContextReaders/ (2 total — informational, not trade signals)
+│   │   ├── C_PivotContextReader      — Reads pivot reversal structure; sets zoneContext flag
+│   │   └── C_DailyContextWarner      — Flags dangerous daily candle contexts (doji, spike)
+│   │
+│   └── Utility/
+│       └── Cmp(double a, double b, double epsilon) — Tolerance-safe double comparison
 │
 ├── CStateMachine         — Derives ENUM_MARKET_STATE; exposes SMarketState
 │   ├── C_TrendAnalyzer
@@ -56,6 +68,25 @@ Lula_V1.mq5  (Main EA Shell — OnInit/OnTick/OnDeinit)
 
 ## Shared Data Structures (Include/)
 - `SSensorData`    — snapshot of all sensor readings per bar
-- `SPatternResult` — detected pattern + entry/SL/TP/R:R
+- `CPatternResult` — detected pattern + tier + isGradeA + entry/SL/TP/R:R + `IsValid()` method
 - `SMarketState`   — market state enum + alignment score
-- `ENUM_ZONE_RANK`, `ENUM_MARKET_STATE`, `ENUM_WEEKLY_BIAS`, etc.
+- `ENUM_ZONE_RANK` (WEAK=0, MINOR=5, STANDARD=10, MAJOR=15, 1_5_HIGH=20, 1_MAXIMUM=30, EXTREME=40)
+- `ENUM_ZONE_TYPE`, `ENUM_MARKET_STATE`, `ENUM_WEEKLY_BIAS`, `ENUM_PATTERN_TYPE`, etc.
+
+## Memory Ownership Contract
+> [!IMPORTANT]
+> The following rules were enforced during Sprint 1 and are **permanent architectural law**.
+> Any future sprint code that violates these rules will introduce memory leaks or dangling pointers.
+
+| Owner Class | Owns | Must NOT be freed by |
+|-------------|------|----------------------|
+| `CSensorArray` | All `CPriceZone*` in `m_active_zones[]` | Any engine class |
+| `CSensorArray` | All 4 engine pointers | Any external caller |
+| `CEngine3_WeeklyMacro` | `m_macroHighZone*`, `m_macroLowZone*` | `CSensorArray::ClearActiveZones()` |
+| `C_RoleReversalMonitor` | **Nothing** — non-owning refs only | — |
+| `CPatternEngine` | All 7 detector instances + 2 context readers | Destructor only |
+
+**Critical sequence in `CSensorArray::ScanMarketEnvironment()`:**
+1. `m_e4_rr.FlushWatchlist()` — FIRST (releases non-owning refs before zone deletion)
+2. `ClearActiveZones()` — SECOND (deletes zone objects, resizes to 0)
+3. Zone scan engines — THIRD (rebuild fresh zones)

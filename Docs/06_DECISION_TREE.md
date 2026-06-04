@@ -27,24 +27,46 @@ IsDailyAligned(weeklyBias) == TRUE
 ```
 IsAtKeyZone() == TRUE
   → SSensorData.isAtSupplyZone OR isAtDemandZone == true
-  → SSensorData.zoneRank >= RANK_MAJOR
+  → CSensorArray::GetConfluenceScore(price) >= 1
+
+  // Confluence score breakdown:
+  // +3  RANK_1_MAXIMUM / ZONE_WEEKLY_MACRO (Engine 3 macro levels)
+  // +2  ZONE_ROLE_REVERSAL (Engine 4 validated retest)
+  // +1  ZONE_SUPPLY / ZONE_DEMAND (Engines 1 & 2)
+  // +1  KAMA Confluence Bonus (price within KAMA_CONFLUENCE_VARIANCE_VIX75)
 ```
 
 ### Gate 4: Pattern Detected
 ```
 IsPatternDetected() == TRUE
-  → CPatternEngine::Detect() returns a valid SPatternResult
-  → SPatternResult.patternType != PATTERN_NONE
-  → SPatternResult.confidenceScore >= inp_Pattern_MinScore (default 70)
+  → CPatternEngine::Detect() returns a valid CPatternResult
+  → CPatternResult.IsValid() == true
+      → patternType  != PATTERN_NONE
+      → confidenceScore >= inp_Pattern_MinScore (default 70)
+      → entryPrice, slPrice, tpPrice all > 0
+
+  // Tier priority (CPatternEngine selects highest tier present):
+  // Tier 1: Engulfing (Grade A), False Breakout, Force Bar, DBLHC/DBHLC
+  // Tier 2: Pin Bar, Star Patterns
+  // Tier 3: Inside Bar
+  // CPatternResult.tier stores the integer tier (1, 2, or 3)
 ```
 
 ### Gate 5: 1H Structure Valid
 ```
 Is1HStructureValid() == TRUE
-  → OR (SPatternResult.patternType == GRADE_A_ENGULFING) // Override Clause bypass
-  → CStateMachine.isChoppy == false
-  → CStateMachine.alignmentScore >= 70
-  → (Sprint 4 TODO: BoS/CHoCH confirmed on 1H)
+
+  // GRADE A ENGULFING OVERRIDE CLAUSE:
+  IF CPatternResult.isGradeA == true:
+    → Gate 5 is BYPASSED entirely
+    → Proceed directly to Gate 6 (Risk:Reward)
+    → Log: "[Lula V1] Gate 5 bypassed — Grade A Engulfing Override active"
+
+  // Standard validation (all non-Tier-1-Engulfing patterns):
+  ELSE:
+    → CStateMachine.isChoppy == false        (ADX(14,H4) >= ADX_CHOPPY_THRESHOLD)
+    → CStateMachine.alignmentScore >= 70      (ALIGNMENT_MIN_SCORE)
+    → (Sprint 4 TODO: BoS/CHoCH confirmed on 1H chart)
 ```
 
 ### Gate 6: Risk:Reward Met
