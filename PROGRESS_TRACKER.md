@@ -11,7 +11,8 @@
 - [x] Code Engine 1: `SupplyDemand()`.
 - [x] Code Engine 2: `StandardSR()`.
 - [x] Code Engine 4: `RoleReversal()`.
-
+- [x] P1-P5 Critical Audit Fixes & Memory Hardening.
+**SPRINT 1 IS 100% COMPLETE AND LOCKED.**
 ## SPRINT 2: Pattern Recognition (Pending)
 - [ ] `C_PinBarDetector.mqh`
 - [ ] `C_EngulfingDetector.mqh` (Grade A flag required)
