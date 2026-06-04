@@ -55,7 +55,11 @@ void C_KAMAModule::Deinit()
 
 void C_KAMAModule::Update()
 {
-   double buf[1];
+   if(m_handle == INVALID_HANDLE) return;
+   
+   // FIXED: Changed static double buf[1] to dynamic for CopyBuffer compatibility
+   double buf[];
+   ArrayResize(buf, 1);
    ArraySetAsSeries(buf, true);
    if(CopyBuffer(m_handle, 0, 1, 1, buf) >= 1)
       m_kama = buf[0];

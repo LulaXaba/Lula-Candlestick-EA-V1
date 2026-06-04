@@ -144,11 +144,14 @@ void CSensorArray::ScanMarketEnvironment()
    m_kama.Update();
 
    // Get W1 array for Engine 3
-   double w1_atr_array[15];
-   CopyBuffer(iATR(_Symbol, PERIOD_W1, 14), 0, 1, 15, w1_atr_array);
-   ArraySetAsSeries(w1_atr_array, true);
-   
-   m_e3_wm.AnalyseWeeklyBias(w1_atr_array);
+   // FIXED: Use dynamic array for MQL5 CopyBuffer compatibility
+   double w1_atr_array[];
+   ArrayResize(w1_atr_array, 15);
+   if(CopyBuffer(iATR(_Symbol, PERIOD_W1, 14), 0, 1, 15, w1_atr_array) > 0)
+     {
+      ArraySetAsSeries(w1_atr_array, true);
+      m_e3_wm.AnalyseWeeklyBias(w1_atr_array);
+     }
    
    // Add Macro Zones explicitly
    int size = ArraySize(m_active_zones);

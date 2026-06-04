@@ -5,26 +5,38 @@
 ---
 
 **CURRENT STATE:**
-- **Active Sprint:** Sprint 1 (The Sensor Array)
-- **Last Completed Task:** All governance and architecture files successfully mapped to the IDE. All 5 misalignments between generated scaffold and actual specification have been corrected.
-- **Current Active File:** `Source/Include/Defines.mqh`
+- **Active Sprint:** Sprint 2 (Pattern Recognition Engine)
+- **Last Completed Task:** Sprint 1 — The Sensor Array — is **fully compiled and locked**.
+  All 11 interface gaps from Appendix A are resolved and closed. MetaEditor 5 reports
+  **0 errors and 0 warnings** across all 9 Sprint 1 files. Key fixes applied:
+  - Unified `ENUM_ZONE_RANK` / `ENUM_ZONE_TYPE` enums in `Defines.mqh` (added 6 missing values).
+  - Added missing constants: `ROLE_REVERSAL_MAX_BARS`, `RISK_REDUCTION_THRESHOLD`, `VIX75_MAX_SPREAD`.
+  - Replaced all static `CopyBuffer` arrays with `double[]; ArrayResize()` pattern in
+    `C_ATRModule`, `C_KAMAModule`, and `CSensorArray`.
+  - Removed invalid `CPriceZone::Init()` call in `CEngine2_StandardSR::DetectZones()`.
+  - Added missing `GetWeeklyATR()` accessor to `CEngine3_WeeklyMacro`.
+- **Current Active File:** `Docs/Plans/sprint2-pattern-engine-manager.md`
 
 ---
 
 **KNOWN ROADBLOCKS / BUGS:**
-- None. Starting fresh code generation.
+- None. Sprint 1 is fully compiled and locked. Starting Sprint 2 fresh.
 
 ---
 
 **YOUR IMMEDIATE NEXT INSTRUCTION:**
-1. Read `Docs/08_MASTER_SPRINT_SPEC.md` to understand Sprint 1 fully.
-2. Read `Docs/03_CODING_STANDARDS.md` to format your MQL5 correctly.
-3. Read `Docs/00_DISCOVERY.md` — the 4 Discovered Solutions drive architecture decisions.
-4. Read `Docs/09_RESEARCH_NOTES.md` — VIX75 ATR threshold and measurement rules are mandatory.
-5. Write the MQL5 code for `Include/Defines.mqh`. It must contain:
-   - Global Enums: Market State, Zone Type, Zone Rank, Pattern Type, Trade Direction, Gate ID
-   - Hardcoded constants: `VIX75_MIN_ATR = 800`, `MAX_WEEKLY_DRAWDOWN = -6.0`
-   - All other constants from Docs/09_RESEARCH_NOTES.md (rollover window, 26-bar lookback, etc.)
+1. Read `Docs/Plans/sprint2-pattern-engine-manager.md` to understand Sprint 2 fully.
+2. Read `Docs/08_MASTER_SPRINT_SPEC.md` — Section: Sprint 2 (Pattern Recognition).
+3. Read `Docs/04_TRADING_RULES.md` — pattern definitions and Grade A Engulfing Override rule.
+4. Read `Docs/03_CODING_STANDARDS.md` to format your MQL5 correctly.
+5. Sprint 1 is **frozen** — do NOT modify any Sprint 1 files unless a Sprint 2 compilation
+   error forces a backport fix (document any such fix in `CHANGELOG.md`).
+6. Build Sprint 2 in this order:
+   - `C_PinBarDetector.mqh`
+   - `C_EngulfingDetector.mqh` (must include `isGradeA` flag)
+   - `C_InsideBarDetector.mqh`
+   - `C_FalseBreakoutDetector.mqh` (15M close inside 4H **body**, not wick)
+   - `CPatternEngine.mqh` (orchestrator — mirrors CSensorArray pattern)
 
 ---
 

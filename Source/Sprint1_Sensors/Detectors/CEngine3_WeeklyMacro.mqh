@@ -35,6 +35,7 @@ public:
    CPriceZone* GetMacroHighZone() const { return m_macroHighZone; }
    CPriceZone* GetMacroLowZone() const { return m_macroLowZone; }
    ENUM_WEEKLY_BIAS  GetWeeklyBias() const { return m_weeklyBias; }
+   double            GetWeeklyATR()  const { return m_weeklyATR; }
    bool              IsHighVolMode() const { return m_highVolMode; }
   };
 

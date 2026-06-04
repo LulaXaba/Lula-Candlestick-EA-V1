@@ -13,10 +13,13 @@
 //+------------------------------------------------------------------+
 enum ENUM_ZONE_RANK
 {
-   RANK_WEAK    = 0,   // Single-touch zone, minor level
-   RANK_MINOR   = 1,   // 2-touch zone, moderate confluence
-   RANK_MAJOR   = 2,   // 3+ touch zone, strong confluence
-   RANK_EXTREME = 3    // All-time high/low, key weekly level
+   RANK_WEAK      = 0,   // Single-touch zone, minor level
+   RANK_MINOR     = 5,   // 2-touch zone, moderate confluence
+   RANK_STANDARD  = 10,  // Baseline S/R cluster level
+   RANK_MAJOR     = 15,  // 3+ touch zone, strong confluence
+   RANK_1_5_HIGH  = 20,  // Role-reversal validated zone (elevated)
+   RANK_1_MAXIMUM = 30,  // Weekly macro high/low — highest priority
+   RANK_EXTREME   = 40   // All-time high/low, key weekly level
 };
 
 //+------------------------------------------------------------------+
@@ -24,10 +27,13 @@ enum ENUM_ZONE_RANK
 //+------------------------------------------------------------------+
 enum ENUM_ZONE_TYPE
 {
-   ZONE_NONE        = 0,
-   ZONE_SUPPLY      = 1,   // Overhead supply (resistance origin)
-   ZONE_DEMAND      = 2,   // Underlying demand (support origin)
-   ZONE_ROLE_REVERSAL = 3  // Broken S/R that flipped (Engine 4)
+   ZONE_NONE          = 0,
+   ZONE_SUPPLY        = 1,   // Overhead supply (resistance origin)
+   ZONE_DEMAND        = 2,   // Underlying demand (support origin)
+   ZONE_ROLE_REVERSAL = 3,   // Broken S/R that flipped (Engine 4)
+   ZONE_STANDARD_SR   = 4,   // Generic S/R cluster (Engine 2 default)
+   ZONE_WEEKLY_MACRO  = 5,   // Weekly high/low macro zone (Engine 3)
+   ZONE_DYNAMIC_KAMA  = 6    // KAMA-anchored dynamic zone
 };
 
 //+------------------------------------------------------------------+
@@ -92,25 +98,46 @@ enum ENUM_GATE_ID
 };
 
 //+------------------------------------------------------------------+
+//| Execution State                                                   |
+//+------------------------------------------------------------------+
+enum ENUM_EXECUTION_STATE
+{
+   EXEC_WAITING         = 0,
+   EXEC_ENTRY_PENDING   = 1,
+   EXEC_ACTIVE          = 2,
+   EXEC_CLOSING         = 3,
+   EXEC_ERROR           = 4
+};
+
+//+------------------------------------------------------------------+
 //| VIX75-Specific Constants (from Docs/09_RESEARCH_NOTES.md)        |
 //+------------------------------------------------------------------+
 #define VIX75_MIN_ATR           800.0   // ATR(14) threshold — below = compression, no trade
+#define VIX75_MAX_SPREAD          5.0   // Maximum allowed spread in points for VIX75
 #define WEEKLY_MACRO_LOOKBACK   26      // 26 weekly bars = ~6 months of macro data
 #define ROLLOVER_PAUSE_START    2355    // Broker time HHMM — pause new trades (23:55)
 #define ROLLOVER_PAUSE_END      5       // Broker time HHMM — resume trades (00:05)
 #define ORDER_RETRY_MAX         3       // Max order submission retries (VIX75 requotes)
 #define ORDER_RETRY_DELAY_MS    200     // Milliseconds between order retries
+#define SLIPPAGE_POINTS_MAX     50      // Max slippage allowed in points
+
+//+------------------------------------------------------------------+
+//| Engine 4: Role Reversal Constants                                 |
+//+------------------------------------------------------------------+
+#define ROLE_REVERSAL_MAX_BARS   50     // Max bars a broken zone stays on the watchlist
 
 //+------------------------------------------------------------------+
 //| Risk Management Constants                                         |
 //+------------------------------------------------------------------+
-#define MAX_WEEKLY_DRAWDOWN     -6.0    // Maximum weekly drawdown % (negative = loss)
-#define ATR_MULTIPLIER_NORMAL    1.5    // Normal market ATR stop multiplier
-#define ATR_MULTIPLIER_HIGH_VOL  2.0    // High volatility mode (weekly ATR elevated)
-#define MIN_SL_POINTS            10.0   // Absolute minimum SL distance in points
-#define MAX_CONSECUTIVE_LOSSES   3      // Trigger lot reduction after N losses
-#define LOT_REDUCTION_FACTOR     0.5    // Halve lot size after consecutive losses
+#define MAX_WEEKLY_DRAWDOWN       -6.0  // Maximum weekly drawdown % (negative = loss)
+#define RISK_REDUCTION_THRESHOLD  -4.0  // Drawdown level % that triggers lot reduction
+#define ATR_MULTIPLIER_NORMAL      1.5  // Normal market ATR stop multiplier
+#define ATR_MULTIPLIER_HIGH_VOL    2.0  // High volatility mode (weekly ATR elevated)
+#define MIN_SL_POINTS             10.0  // Absolute minimum SL distance in points
+#define MAX_CONSECUTIVE_LOSSES    3     // Trigger lot reduction after N losses
+#define LOT_REDUCTION_FACTOR      0.5   // Halve lot size after consecutive losses
 #define MARGIN_LEVEL_MIN         200.0  // Minimum margin level % — Gate 7
+#define RISK_PER_TRADE_PCT         1.0  // Default 1% risk per trade
 
 //+------------------------------------------------------------------+
 //| Pattern Recognition Constants                                     |
@@ -125,16 +152,14 @@ enum ENUM_GATE_ID
 #define ADX_CHOPPY_THRESHOLD     20.0   // ADX(14) H4 below this = choppy, no trades
 #define ALIGNMENT_MIN_SCORE      70     // Minimum multi-TF alignment score — Gate 5
 #define DAILY_REJECTION_WICK_PCT 0.60   // Daily wick > 60% of range = rejection candle
-// ★ ADDED: [Task P5] — Weekly thresholds
-#define WEEKLY_DOJI_THRESHOLD       0.05
-#define WEEKLY_NEUTRAL_THRESHOLD    0.20
+#define WEEKLY_DOJI_THRESHOLD    0.05
+#define WEEKLY_NEUTRAL_THRESHOLD 0.20
 
 //+------------------------------------------------------------------+
 //| KAMA (Kaufman Adaptive Moving Average) Parameters                 |
 //+------------------------------------------------------------------+
 #define KAMA_FAST_PERIOD         2      // Fast EMA period
 #define KAMA_SLOW_PERIOD         30     // Slow EMA period
-// ★ ADDED: [Task P5] — KAMA confluence variance constants
 #define KAMA_CONFLUENCE_VARIANCE_VIX75    20.0
 #define KAMA_CONFLUENCE_VARIANCE_FOREX    5.0
 

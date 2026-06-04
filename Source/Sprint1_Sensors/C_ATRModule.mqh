@@ -85,7 +85,11 @@ void C_ATRModule::Deinit()
 //--- Safe single-bar buffer read
 bool C_ATRModule::FetchATR(const int handle, double &out_value)
 {
-   double buf[1];
+   if(handle == INVALID_HANDLE) return false;
+   
+   // FIXED: Changed static double buf[1] to dynamic for CopyBuffer compatibility
+   double buf[];
+   ArrayResize(buf, 1);
    ArraySetAsSeries(buf, true);
    if(CopyBuffer(handle, 0, 1, 1, buf) < 1) return false;
    out_value = buf[0];

@@ -114,7 +114,6 @@ void CEngine2_StandardSR::DetectZones(C_SwingDetector* swings, double variance_p
          ArrayResize(out_zones, outSize + 1);
          
          out_zones[outSize] = new CPriceZone();
-         out_zones[outSize].Init(m_symbol, lookback_bars);
          
          out_zones[outSize].SetZoneLimits(clusters[c].upperBound, clusters[c].lowerBound);
          
