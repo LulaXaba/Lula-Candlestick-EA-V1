@@ -1,9 +1,9 @@
 //+------------------------------------------------------------------+
 //|  Lula_V1.mq5                                                     |
 //|  Lula Price Action Execution Engine V1.0                         |
-//|  Multi-Timeframe Candlestick EA — VIX75 & Forex                 |
+//|  Multi-Timeframe Candlestick EA — VIX75 & Forex                  |
 //|                                                                  |
-//|  Architecture: Weekly->Daily->4H->1H->15M                       |
+//|  Architecture: Weekly->Daily->4H->1H->15M                        |
 //|  Entry Logic:  7-Gate Boolean Decision Tree                      |
 //+------------------------------------------------------------------+
 #property copyright   "Lula Trading Systems"
@@ -15,47 +15,53 @@
 #include "Include/Defines.mqh"
 #include "Include/DTOs.mqh"
 
-//--- Sprint modules
+//--- Sprint 1 module (Active)
 #include "Sprint1_Sensors/CSensorArray.mqh"
-//#include "Sprint2_Patterns/CPatternEngine.mqh"
-//#include "Sprint3_State/CStateMachine.mqh"
-//#include "Sprint4_Execution/CDecisionTree.mqh"
-//#include "Sprint4_Execution/CRiskManager.mqh"
-//#include "Sprint4_Execution/CTradeExecutor.mqh"
-//#include "Sprint4_Execution/CCorrelationFilter.mqh"
+
+/* --- FUTURE SPRINTS (Commented out until built) ---
+#include "Sprint2_Patterns/CPatternEngine.mqh"
+#include "Sprint3_State/CStateMachine.mqh"
+#include "Sprint4_Execution/CDecisionTree.mqh"
+#include "Sprint4_Execution/CRiskManager.mqh"
+#include "Sprint4_Execution/CTradeExecutor.mqh"
+#include "Sprint4_Execution/CCorrelationFilter.mqh"
+---------------------------------------------------*/
 
 //+------------------------------------------------------------------+
-//| EA Input Parameters                                               |
+//| EA Input Parameters                                              |
 //+------------------------------------------------------------------+
 input group "=== Risk Management ==="
-input double inp_RiskPercent        = 1.0;   // Risk per trade (% of balance)
-input double inp_MaxDailyDrawdown   = 4.0;   // Max daily drawdown (%)
-input double inp_MaxTotalDrawdown   = 6.0;   // Max total session drawdown (%)
-input double inp_ATR_StopMultiplier = 1.5;   // ATR stop loss multiplier
-input double inp_MinRR              = 2.0;   // Minimum Risk:Reward ratio
+input double inp_RiskPercent        = 1.0;     // Risk per trade (% of balance)
+input double inp_MaxDailyDrawdown   = 4.0;     // Max daily drawdown (%)
+input double inp_MaxTotalDrawdown   = 6.0;     // Max total session drawdown (%)
+input double inp_ATR_StopMultiplier = 1.5;     // ATR stop loss multiplier
+input double inp_MinRR              = 2.0;     // Minimum Risk:Reward ratio
 
 input group "=== Sensor Settings ==="
-input int    inp_ATR_Period         = 14;    // ATR period (all timeframes)
-input int    inp_KAMA_Period        = 14;    // KAMA / iAMA period
-input int    inp_ZoneLookback       = 100;   // Bars to scan for S/D zones
+input int    inp_ATR_Period         = 14;      // ATR period (all timeframes)
+input int    inp_KAMA_Period        = 30;      // KAMA Slow period
+input int    inp_ZoneLookback       = 500;     // Bars to scan for S/D zones
 
 input group "=== Pattern Settings ==="
-input double inp_PinBar_WickRatio   = 0.65;  // Min wick-to-range ratio for Pin Bar
-input int    inp_Pattern_MinScore   = 70;    // Min confidence score (0-100)
+input double inp_PinBar_WickRatio   = 0.65;    // Min wick-to-range ratio for Pin Bar
+input int    inp_Pattern_MinScore   = 70;      // Min confidence score (0-100)
 
 input group "=== Magic Number ==="
 input ulong  inp_MagicNumber        = 20250101; // Unique EA magic number
 
 //+------------------------------------------------------------------+
-//| Module Instances (global — initialised in OnInit)                |
+//| Module Instances (global)                                        |
 //+------------------------------------------------------------------+
 CSensorArray        g_Sensors;
+
+/* --- FUTURE INSTANCES ---
 CPatternEngine      g_Patterns;
 CStateMachine       g_StateMachine;
 CDecisionTree       g_DecisionTree;
 CRiskManager        g_RiskManager;
 CTradeExecutor      g_Executor;
 CCorrelationFilter  g_CorrFilter;
+-------------------------*/
 
 //+------------------------------------------------------------------+
 //| OnInit — Initialise all modules in dependency order              |
@@ -65,38 +71,23 @@ int OnInit()
    PrintFormat("[Lula V1] Initialising | Symbol: %s | TF: %s | Build: %d",
                _Symbol, EnumToString(_Period), TerminalInfoInteger(TERMINAL_BUILD));
 
-   if(!g_Sensors.Init(_Symbol, inp_ATR_Period, inp_KAMA_Period, inp_ZoneLookback)) {
+   // Detect if running on a synthetic/volatility index for variance scaling
+   bool is_vix = (StringFind(_Symbol, "75") >= 0 || StringFind(_Symbol, "10") >= 0 ||
+                  StringFind(_Symbol, "25") >= 0 || StringFind(_Symbol, "50") >= 0 ||
+                  StringFind(_Symbol, "100") >= 0 || StringFind(_Symbol, "Step") >= 0);
+
+   // FIXED: Passing all 6 required parameters to CSensorArray
+   if(!g_Sensors.Init(_Symbol, inp_ATR_Period, 2, inp_KAMA_Period, inp_ZoneLookback, is_vix)) {
       Print("[ERROR] CSensorArray::Init() failed — EA shutting down.");
       return INIT_FAILED;
    }
-   if(!g_Patterns.Init(inp_PinBar_WickRatio, inp_Pattern_MinScore)) {
-      Print("[ERROR] CPatternEngine::Init() failed — EA shutting down.");
-      return INIT_FAILED;
-   }
-   if(!g_StateMachine.Init()) {
-      Print("[ERROR] CStateMachine::Init() failed — EA shutting down.");
-      return INIT_FAILED;
-   }
-   if(!g_RiskManager.Init(inp_RiskPercent, inp_MaxDailyDrawdown,
-                           inp_MaxTotalDrawdown, inp_ATR_StopMultiplier, inp_MinRR)) {
-      Print("[ERROR] CRiskManager::Init() failed — EA shutting down.");
-      return INIT_FAILED;
-   }
-   if(!g_Executor.Init(inp_MagicNumber)) {
-      Print("[ERROR] CTradeExecutor::Init() failed — EA shutting down.");
-      return INIT_FAILED;
-   }
-   if(!g_CorrFilter.Init()) {
-      Print("[ERROR] CCorrelationFilter::Init() failed — EA shutting down.");
-      return INIT_FAILED;
-   }
-   if(!g_DecisionTree.Init(&g_Sensors, &g_Patterns, &g_StateMachine,
-                            &g_RiskManager, &g_Executor, &g_CorrFilter)) {
-      Print("[ERROR] CDecisionTree::Init() failed — EA shutting down.");
-      return INIT_FAILED;
-   }
 
-   Print("[Lula V1] All modules initialised successfully. Waiting for first bar...");
+   /* --- FUTURE INITS ---
+   if(!g_Patterns.Init(inp_PinBar_WickRatio, inp_Pattern_MinScore)) { ... }
+   // ... other modules
+   ---------------------*/
+
+   Print("[Lula V1] Sensor Array initialised successfully. Waiting for first bar...");
    return INIT_SUCCEEDED;
 }
 
@@ -105,13 +96,15 @@ int OnInit()
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
 {
+   /* --- FUTURE DEINITS ---
    g_DecisionTree.Deinit();
    g_CorrFilter.Deinit();
    g_Executor.Deinit();
    g_RiskManager.Deinit();
    g_StateMachine.Deinit();
    g_Patterns.Deinit();
-   g_Sensors.Deinit();
+   -----------------------*/
+
    PrintFormat("[Lula V1] Deinitialised. Reason code: %d", reason);
 }
 
@@ -129,15 +122,11 @@ void OnTick()
    //--- Update all sensor data first (reads indicators, zones)
    g_Sensors.Update();
 
-   //--- Derive market state from sensor data
-   g_StateMachine.Update(g_Sensors.GetData());
-
-   //--- Run the 7-gate decision tree
-   //    If all gates pass, CTradeExecutor::PlaceTrade() is called internally
+   /* --- FUTURE LOGIC ---
+   g_StateMachine.Update(g_Sensors.GetData(Close[0]));
    g_DecisionTree.Evaluate();
-
-   //--- Manage any open trades (trailing stop, partial close logic)
    g_Executor.ManageOpenTrades();
+   ---------------------*/
 }
 
 //+------------------------------------------------------------------+
@@ -147,5 +136,5 @@ void OnTradeTransaction(const MqlTradeTransaction& trans,
                         const MqlTradeRequest&     request,
                         const MqlTradeResult&      result)
 {
-   g_Executor.OnTradeTransaction(trans, request, result);
+   // g_Executor.OnTradeTransaction(trans, request, result);
 }
