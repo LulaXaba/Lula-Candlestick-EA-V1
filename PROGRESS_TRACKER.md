@@ -35,13 +35,13 @@
 - [x] Code Detector 7: `C_StarPatternDetector.mqh` (Tier 2 — Morning/Evening Star, 3-candle).
 - [x] Code Context Readers (Pivot Reversal & Daily Warning).
 
-## SPRINT 3: State Machine (Pending)
-- [ ] `C_TrendAnalyzer.mqh`
-- [ ] `C_RangeAnalyzer.mqh`
-- [ ] `C_ChoppyFilter.mqh`
-- [ ] `C_RetracementDetector.mqh` (Retracement = valid state, not rejection)
-- [ ] `C_AlignmentScorer.mqh`
-- [ ] `CStateMachine.mqh`
+## SPRINT 3: The State Machine
+- [x] Code `Sprint3_State/CStateMachine.mqh` (Orchestrator).
+- [x] Code `Sprint3_State/C_ChoppyFilter.mqh` (ADX < 20 Filter).
+- [ ] Code `Sprint3_State/C_TrendAnalyzer.mqh`.
+- [ ] Code `Sprint3_State/C_RangeAnalyzer.mqh`.
+- [ ] Code `Sprint3_State/C_RetracementDetector.mqh`.
+- [ ] Code `Sprint3_State/C_AlignmentScorer.mqh`.
 
 ## SPRINT 4: Execution & Risk (Pending)
 - [ ] `CDecisionTree.mqh` (Gate 5 Override Clause, ATR gate, rollover filter)

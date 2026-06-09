@@ -8,11 +8,11 @@
 #include "..\Include\Defines.mqh"
 #include "..\Include\DTOs.mqh"
 #include "..\Sprint1_Sensors\CSensorArray.mqh"
+#include "C_ChoppyFilter.mqh"
 
-// Forward declarations for sub-analyzers (to be built next)
+// Forward declarations for remaining sub-analyzers
 class C_TrendAnalyzer;
 class C_RangeAnalyzer;
-class C_ChoppyFilter;
 class C_RetracementDetector;
 class C_AlignmentScorer;
 
@@ -51,10 +51,11 @@ CStateMachine::CStateMachine() : m_symbol(""), m_last_update_time(0)
    ZeroMemory(m_current_state);
    m_current_state.state = STATE_UNDEFINED;
    
-   // Initialize pointers to NULL until the files are built
+   m_choppy_filter        = new C_ChoppyFilter();
+   
+   // Initialize remaining pointers to NULL
    m_trend_analyzer       = NULL;
    m_range_analyzer       = NULL;
-   m_choppy_filter        = NULL;
    m_retracement_detector = NULL;
    m_alignment_scorer     = NULL;
   }
@@ -68,9 +69,7 @@ bool CStateMachine::Init(const string symbol)
   {
    m_symbol = (symbol == NULL) ? _Symbol : symbol;
    
-   // TODO: Instantiate sub-analyzers here as we build them:
-   // m_choppy_filter = new C_ChoppyFilter();
-   // m_choppy_filter.Init(m_symbol);
+   if(m_choppy_filter != NULL) m_choppy_filter.Init(m_symbol, 14, 20.0);
    
    return true;
   }
@@ -97,30 +96,34 @@ bool CStateMachine::IsNewBar()
 
 void CStateMachine::Update(const SSensorData &sensor_data)
   {
-   // The State Machine evaluates the global picture once per bar
    if(!IsNewBar()) return;
    
-   // Default reset
    ZeroMemory(m_current_state);
    m_current_state.state = STATE_UNDEFINED;
 
    //---------------------------------------------------------
-   // STATE EVALUATION CASCADE (To be implemented with sub-analyzers)
+   // STATE EVALUATION CASCADE
    //---------------------------------------------------------
    
    // Step 1: Check for Choppy/Un-tradeable conditions first (ADX < 20)
-   // if(m_choppy_filter.IsChoppy()) { m_current_state.state = STATE_CHOPPY; return; }
+   if(m_choppy_filter.IsChoppy()) 
+     { 
+      m_current_state.state = STATE_CHOPPY;
+      m_current_state.isChoppy = true;
+      return; // Halt further state evaluation if the market is dead
+     }
+     
+   m_current_state.isChoppy = false;
    
-   // Step 2: Check for Ranging Market (Price bouncing between tight S/R bounds)
-   // if(m_range_analyzer.IsRanging(sensor_data)) { m_current_state.state = STATE_RANGING; }
+   // Step 2: Check for Ranging Market
+   // if(m_range_analyzer.IsRanging(sensor_data)) { ... }
 
    // Step 3: Check for Trend Phase (Impulse vs Retracement)
    // m_trend_analyzer.Evaluate(sensor_data, m_current_state);
    // m_retracement_detector.Evaluate(sensor_data, m_current_state);
    
-   // Step 4: Calculate Timeframe Alignment Score (0-100)
+   // Step 4: Calculate Timeframe Alignment Score
    // m_current_state.alignmentScore = m_alignment_scorer.CalculateScore(sensor_data);
-
   }
 
 #endif
