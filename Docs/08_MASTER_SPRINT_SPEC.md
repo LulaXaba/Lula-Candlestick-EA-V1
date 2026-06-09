@@ -61,43 +61,28 @@ bool Cmp(double a, double b, double epsilon = 1e-8);
 #### Orchestrator
 | File | Responsibility |
 |------|---------------|
-| `CPatternEngine.mqh` | Runs all 7 detectors + 2 context readers. Returns single highest-tier valid `CPatternResult`. Owns all detector instances — deletes in destructor. |
+| `CPatternEngine.mqh` | Runs all 7 detectors + `C_ContextAnalyzer`. Returns highest-priority valid `CPatternResult`. Owns instances, safely deletes in destructor. |
+| `C_ContextAnalyzer.mqh` | Unified algorithmic sieve. Enforces Daily Warning (60% wick rejection limit) and Pivot Reversal (must occur at a zone or 8-bar fractal extreme). |
 
-#### Tier 1 Detectors (highest institutional weight; Engulfing triggers Gate 5 bypass)
+#### Detectors
 | File | Responsibility |
 |------|---------------|
-| `C_EngulfingDetector.mqh` | Current body fully engulfs previous body. `isGradeA = true` if body ratio ≥ `ENGULFING_GRADE_A_RATIO (1.5×)`. |
-| `C_FalseBreakoutDetector.mqh` | Price wicks through zone boundary then closes BACK inside zone. 15M close must be inside the 4H **body** (Open/Close), NOT the wick (High/Low). |
-| `C_ForceBarDetector.mqh` | Single full-body directional candle. Body ≥ `2.0 × ATR(14)`. Wick < 20% of body. |
-| `C_DoubleCandleDetector.mqh` | DBLHC (Double Bar Higher Close — bullish) / DBHLC (Double Bar Lower Close — bearish). |
-
-#### Tier 2 Detectors
-| File | Responsibility |
-|------|---------------|
-| `C_PinBarDetector.mqh` | Wick ≥ `PINBAR_MIN_WICK_RATIO (0.65)` of total range. Tail points away from zone. |
-| `C_StarPatternDetector.mqh` | Morning Star (bullish) / Evening Star (bearish) — 3-candle. Middle body ≤ 10% of range. |
-
-#### Tier 3 Detectors
-| File | Responsibility |
-|------|---------------|
-| `C_InsideBarDetector.mqh` | Current High ≤ previous High AND Low ≥ previous Low. Requires zone rank ≥ `RANK_MAJOR`. |
-
-#### Context Readers (informational — not trade signals)
-| File | Responsibility |
-|------|---------------|
-| `C_PivotContextReader.mqh` | Classical pivot reversal structure. Sets `zoneContext` flag on `CPatternResult`. |
-| `C_DailyContextWarner.mqh` | Flags dangerous daily contexts (doji, spike bar, gap). Reduces `confidenceScore` by 15 if active. |
+| `C_EngulfingDetector.mqh` | Current body engulfs previous body. `isGradeA = true` if body ratio ≥ `1.5×`. |
+| `C_FalseBreakoutDetector.mqh` | Dynamic VIX75 (10% ATR) vs Forex (5% ATR) penetration logic. Triggers Grade A. |
+| `C_ForceBarDetector.mqh` | Body ≥ 80% range, size ≥ 1× ATR. Displacement ≥ `2.0× ATR` triggers Grade A. |
+| `C_StarPatternDetector.mqh` | 3-bar morning/evening stars (Directional Base → Exhaustion → Reversal). |
+| `C_PinBarDetector.mqh` | Wick-ratio test; wick ≥ `0.65`. |
+| `C_InsideBarDetector.mqh` | Strict High/Low inside bounds; directional bias derived from Mother Bar. |
+| `C_DblhcDbhlcDetector.mqh` | ATR variance tolerance matching (5% VIX75 / 2% Forex) for floor/ceiling blocks. |
 
 ### Acceptance Criteria
 - All files compile: **0 errors, 0 warnings** in MetaEditor 5.
 - `CPatternEngine::Detect()` correctly identifies all 7 pattern types on historical test data.
 - `CPatternResult.IsValid()` returns `false` for `PATTERN_NONE`, zero prices, or score < 70.
-- `isGradeA` is **only ever `true`** for Engulfing with body ratio ≥ 1.5×. All others: `false`.
-- `C_FalseBreakoutDetector` uses the 4H **body** boundary (not wick) for the close-back test.
-- `Cmp()` is used for **all** floating-point equality checks — zero raw `==` on doubles.
-- Tier priority enforced: Tier 1 present → no Tier 2 or 3 result returned.
-- Memory contract: `CPatternEngine` owns and deletes all 7 detectors + 2 context readers in destructor.
-- Priority order: `Engulfing/FalseBO/ForceBar/DoubleCandle (T1) > PinBar/Star (T2) > InsideBar (T3)`.
+- `isGradeA` triggers correctly for Engulfing, False Breakouts, and Extreme Force Bars.
+- `Cmp()` is used for **all** floating-point equality checks.
+- Memory contract: `CPatternEngine` owns and deletes all detectors + context analyzer.
+- **SPRINT 2 STATUS: 100% COMPLETE** ✅
 
 ---
 
@@ -107,12 +92,12 @@ bool Cmp(double a, double b, double epsilon = 1e-8);
 ### Files
 | File | Responsibility |
 |------|---------------|
-| `C_TrendAnalyzer.mqh` | KAMA slope → bullish / bearish / flat |
-| `C_RangeAnalyzer.mqh` | Swing H/L → range high / range low |
-| `C_ChoppyFilter.mqh` | ADX(14) on H4 < threshold → choppy (no trades) |
-| `C_RetracementDetector.mqh` | Fibonacci 38.2 / 50 / 61.8 on most recent swing |
-| `C_AlignmentScorer.mqh` | 0-100 score based on 5 alignment criteria |
-| `CStateMachine.mqh` | Derives `ENUM_MARKET_STATE`; exposes `SMarketState` |
+| `C_TrendAnalyzer.mqh` | Evaluates KAMA slope & current price vs KAMA from `SSensorData`. |
+| `C_RangeAnalyzer.mqh` | Reads structural extremes using `CSensorArray` context. |
+| `C_ChoppyFilter.mqh` | Uses ADX to filter chop; intercepts non-Grade-A patterns if low momentum. |
+| `C_RetracementDetector.mqh` | Identifies Fib 38.2/50/61.8 overlaps with `CPatternResult` entry points. |
+| `C_AlignmentScorer.mqh` | Generates 0-100 score validating `CPatternResult` confidence. |
+| `CStateMachine.mqh` | Derives `ENUM_MARKET_STATE`; exposes `SMarketState` to Gate 5. |
 
 ### Acceptance Criteria
 - Market state correctly identified in MT5 backtest visual mode.

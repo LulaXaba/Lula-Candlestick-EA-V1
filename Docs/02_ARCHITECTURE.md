@@ -37,18 +37,16 @@ Lula_V1.mq5  (Main EA Shell — OnInit/OnTick/OnDeinit)
 │
 ├── CPatternEngine        — Orchestrator; runs all detectors; returns highest-tier CPatternResult
 │   │
-│   ├── Detectors/ (7 total — Tier-ranked by institutional weight)
-│   │   ├── C_EngulfingDetector       — [Tier 1] Grade A body engulf; sets isGradeA flag
-│   │   ├── C_FalseBreakoutDetector   — [Tier 1] Zone pierce + close-back (liquidity sweep)
-│   │   ├── C_ForceBarDetector        — [Tier 1] Single full-body directional candle (≥ 2×ATR)
-│   │   ├── C_DoubleCandleDetector    — [Tier 1] DBLHC (bullish) / DBHLC (bearish) two-candle
+│   ├── Detectors/ (7 total — Prioritized by institutional weight)
+│   │   ├── C_EngulfingDetector       — [Tier 1] Body engulf ≥ 1.5×; triggers Grade A bypass
+│   │   ├── C_FalseBreakoutDetector   — [Tier 1] Zone pierce + close-back; triggers Grade A bypass
+│   │   ├── C_ForceBarDetector        — [Tier 1] ≥ 80% body; ≥ 2.0×ATR displacement triggers Grade A bypass
+│   │   ├── C_StarPatternDetector     — [Tier 1] Morning Star / Evening Star (3-candle reversal)
 │   │   ├── C_PinBarDetector          — [Tier 2] Wick-ratio test; wick ≥ PINBAR_MIN_WICK_RATIO
-│   │   ├── C_StarPatternDetector     — [Tier 2] Morning Star / Evening Star (3-candle)
-│   │   └── C_InsideBarDetector       — [Tier 3] Inside range; direction from bias alignment
+│   │   ├── C_InsideBarDetector       — [Tier 3] Inside range; direction from bias alignment
+│   │   └── C_DblhcDbhlcDetector      — [Tier 3] DBLHC (bullish) / DBHLC (bearish) ATR-variance matching extremes
 │   │
-│   ├── ContextReaders/ (2 total — informational, not trade signals)
-│   │   ├── C_PivotContextReader      — Reads pivot reversal structure; sets zoneContext flag
-│   │   └── C_DailyContextWarner      — Flags dangerous daily candle contexts (doji, spike)
+│   ├── C_ContextAnalyzer             — Unified filter: tests Pivot Reversal and Daily Warning rules
 │   │
 │   └── Utility/
 │       └── Cmp(double a, double b, double epsilon) — Tolerance-safe double comparison

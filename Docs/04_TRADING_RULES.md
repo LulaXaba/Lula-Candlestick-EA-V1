@@ -40,14 +40,21 @@ pattern detected at the zone. Lower-tier patterns are only reported if no higher
 
 | Tier | Patterns | isGradeA | Gate 5 Behaviour |
 |------|----------|----------|-----------------|
-| **Tier 1** | Engulfing (Grade A), False Breakout, Force Bar, Double Candle (DBLHC/DBHLC) | `true` for Engulfing only | **Gate 5 bypassed** — drop directly to 15M entry |
-| **Tier 2** | Pin Bar, Star Patterns (Morning/Evening Star) | `false` | Normal Gate 5 validation required |
-| **Tier 3** | Inside Bar | `false` | Normal Gate 5 validation + requires strong zone rank |
+| **Tier 1** | Engulfing, False Breakout, Force Bar | `true` for Engulfing (≥ 1.5× body), False Breakout, and Extreme Force Bar (≥ 2.0× ATR) | **Gate 5 bypassed** — drop directly to 15M entry |
+| **Tier 2** | Star Patterns, Pin Bar | `false` | Normal Gate 5 validation required |
+| **Tier 3** | Inside Bar, DBLHC/DBHLC | `false` | Normal Gate 5 validation + requires strong zone rank |
 | **Tier 4** | Confluence-only (no pattern, but score ≥ 3) | `false` | **NOT a trade signal** — informational only |
 
-> **Grade A Engulfing Override:** If `CPatternResult.isGradeA == true`, Gate 5 (1H structure check)
-> is bypassed entirely. The EA drops directly to 15M entry execution. This is the only bypass in
-> the 7-gate system and applies **only to Tier 1 Engulfing** with body ratio ≥ `ENGULFING_GRADE_A_RATIO (1.5×)`.
+> **Grade A Bypass Override:** If `CPatternResult.isGradeA == true`, Gate 5 (1H structure check)
+> is bypassed entirely. The EA drops directly to 15M entry execution. This applies to:
+> - **Engulfing:** Body ratio ≥ `ENGULFING_GRADE_A_RATIO (1.5×)`.
+> - **False Breakout:** Strict penetration depths (VIX75: ≥ 10% ATR, Forex: ≥ 5% ATR).
+> - **Extreme Force Bar:** Displacement ≥ 2.0× ATR with ≥ 80% body ratio.
+
+## Context Final Filters (C_ContextAnalyzer)
+Before a pattern is deemed valid, it must pass the unified algorithmic sieve:
+1. **Daily Warning Rule:** If the current daily candle wick against the intended trade direction is ≥ 60% of the daily range (`DAILY_REJECTION_WICK_PCT`), the trade is rejected (macro players are rejecting the level).
+2. **Pivot Reversal Rule:** Non-Grade-A patterns MUST occur either AT a recognized structural zone (Sprint 1) OR form a local 8-bar fractal extreme. Patterns floating in "no man's land" are immediately discarded.
 
 ## Step 4: 1H Structure Validation (Gate 5)
 - **Override Clause**: If a Grade A Engulfing Bar is detected, bypass the 1H structure check completely and drop directly to 15M for execution.
