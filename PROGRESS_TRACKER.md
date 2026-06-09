@@ -38,7 +38,7 @@
 ## SPRINT 3: The State Machine
 - [x] Code `Sprint3_State/CStateMachine.mqh` (Orchestrator).
 - [x] Code `Sprint3_State/C_ChoppyFilter.mqh` (ADX < 20 Filter).
-- [ ] Code `Sprint3_State/C_TrendAnalyzer.mqh`.
+- [x] Code `Sprint3_State/C_TrendAnalyzer.mqh` (Structure & Momentum Flow).
 - [ ] Code `Sprint3_State/C_RangeAnalyzer.mqh`.
 - [ ] Code `Sprint3_State/C_RetracementDetector.mqh`.
 - [ ] Code `Sprint3_State/C_AlignmentScorer.mqh`.
