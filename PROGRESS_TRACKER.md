@@ -30,7 +30,7 @@
 - [x] Code Detector 2: `C_EngulfingDetector.mqh` (Tier 1 — Grade A override if body ratio ≥ 1.5×).
 - [x] Code Detector 3: `C_InsideBarDetector.mqh` (Tier 3 — requires `RANK_MAJOR` minimum).
 - [x] Code Detector 4: `C_FalseBreakoutDetector.mqh` (Tier 1 — 4H body boundary rule, not wick).
-- [ ] Code Detector 5: `C_DoubleCandleDetector.mqh` (Tier 1 — DBLHC/DBHLC).
+- [x] Code Detector 5: `C_DoubleCandleDetector.mqh` (Tier 1 — DBLHC/DBHLC).
 - [ ] Code Detector 6: `C_ForceBarDetector.mqh` (Tier 1 — body ≥ 2× ATR, wick < 20% body).
 - [ ] Code Detector 7: `C_StarPatternDetector.mqh` (Tier 2 — Morning/Evening Star, 3-candle).
 - [ ] Code Context Reader: `C_PivotContextReader.mqh` (informational — sets `zoneContext`).

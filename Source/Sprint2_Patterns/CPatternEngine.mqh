@@ -12,6 +12,7 @@
 #include "Detectors\C_EngulfingDetector.mqh"
 #include "Detectors\C_InsideBarDetector.mqh"
 #include "Detectors\C_FalseBreakoutDetector.mqh"
+#include "Detectors\C_DblhcDbhlcDetector.mqh"
 
 class CPatternEngine
   {
@@ -27,6 +28,7 @@ private:
    C_EngulfingDetector* m_engulfing_detector;
    C_InsideBarDetector* m_insidebar_detector;
    C_FalseBreakoutDetector* m_fbo_detector;
+   C_DblhcDbhlcDetector* m_dblhc_detector;
 
    bool                 IsNewBar();
 
@@ -51,6 +53,7 @@ CPatternEngine::CPatternEngine() : m_pinbar_wick_ratio(0.65), m_min_score(70), m
    m_engulfing_detector = new C_EngulfingDetector();
    m_insidebar_detector = new C_InsideBarDetector();
    m_fbo_detector       = new C_FalseBreakoutDetector();
+   m_dblhc_detector     = new C_DblhcDbhlcDetector();
   }
 
 CPatternEngine::~CPatternEngine()
@@ -67,6 +70,7 @@ bool CPatternEngine::Init(double pinbar_ratio, int min_score)
    if(m_engulfing_detector != NULL) m_engulfing_detector.Init(_Symbol, m_min_score);
    if(m_insidebar_detector != NULL) m_insidebar_detector.Init(_Symbol, m_min_score);
    if(m_fbo_detector != NULL)       m_fbo_detector.Init(_Symbol, m_min_score);
+   if(m_dblhc_detector != NULL)     m_dblhc_detector.Init(_Symbol, m_min_score);
    
    return true;
   }
@@ -78,6 +82,7 @@ void CPatternEngine::Deinit()
    if(m_engulfing_detector != NULL) { delete m_engulfing_detector; m_engulfing_detector = NULL; }
    if(m_insidebar_detector != NULL) { delete m_insidebar_detector; m_insidebar_detector = NULL; }
    if(m_fbo_detector != NULL)       { delete m_fbo_detector; m_fbo_detector = NULL; }
+   if(m_dblhc_detector != NULL)     { delete m_dblhc_detector; m_dblhc_detector = NULL; }
   }
 
 bool CPatternEngine::IsNewBar()
@@ -107,10 +112,10 @@ CPatternResult* CPatternEngine::ScanForPattern(CSensorArray* sensor)
    
    m_latest_result.Clear();
    
-   //--- DETECTOR PRIORITY 1: ENGULFING BAR (Capable of Grade A Bypass)
+   //--- DETECTOR PRIORITY 1: ENGULFING BAR (Grade A)
    if(m_engulfing_detector.Detect(1, sensor, m_latest_result)) return m_latest_result;
 
-   //--- DETECTOR PRIORITY 2: FALSE BREAKOUT (Capable of Grade A Bypass)
+   //--- DETECTOR PRIORITY 2: FALSE BREAKOUT (Grade A)
    if(m_fbo_detector.Detect(1, sensor, m_latest_result)) return m_latest_result;
 
    //--- DETECTOR PRIORITY 3: PIN BAR
@@ -118,8 +123,11 @@ CPatternResult* CPatternEngine::ScanForPattern(CSensorArray* sensor)
      
    //--- DETECTOR PRIORITY 4: INSIDE BAR
    if(m_insidebar_detector.Detect(1, sensor, m_latest_result)) return m_latest_result;
+
+   //--- DETECTOR PRIORITY 5: DBLHC / DBHLC
+   if(m_dblhc_detector.Detect(1, sensor, m_latest_result)) return m_latest_result;
      
-   // TODO: Inject remaining 3 Detectors here
+   // TODO: Inject remaining 2 Detectors here
    
    return m_latest_result;
   }
