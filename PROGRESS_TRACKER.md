@@ -27,7 +27,7 @@
 - [x] Code `Sprint2_Patterns/CPatternResult.mqh` (DTO — `ENUM_PATTERN_GRADE`, `SetPattern()`, `IsValid()`).
 - [x] Code `Sprint2_Patterns/CPatternEngine.mqh` (Manager — `Cmp()` utility, `ScanForPattern()`, closed-bar rule).
 - [x] Code Detector 1: `C_PinBarDetector.mqh` (Tier 2 — wick ratio ≥ 0.65).
-- [ ] Code Detector 2: `C_EngulfingDetector.mqh` (Tier 1 — Grade A override if body ratio ≥ 1.5×).
+- [x] Code Detector 2: `C_EngulfingDetector.mqh` (Tier 1 — Grade A override if body ratio ≥ 1.5×).
 - [ ] Code Detector 3: `C_InsideBarDetector.mqh` (Tier 3 — requires `RANK_MAJOR` minimum).
 - [ ] Code Detector 4: `C_FalseBreakoutDetector.mqh` (Tier 1 — 4H body boundary rule, not wick).
 - [ ] Code Detector 5: `C_DoubleCandleDetector.mqh` (Tier 1 — DBLHC/DBHLC).
