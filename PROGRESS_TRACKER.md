@@ -40,7 +40,7 @@
 - [x] Code `Sprint3_State/C_ChoppyFilter.mqh` (ADX < 20 Filter).
 - [x] Code `Sprint3_State/C_TrendAnalyzer.mqh` (Structure & Momentum Flow).
 - [x] Code `Sprint3_State/C_RangeAnalyzer.mqh` (ATR Bounded Zone Oscillator).
-- [ ] Code `Sprint3_State/C_RetracementDetector.mqh`.
+- [x] Code `Sprint3_State/C_RetracementDetector.mqh` (Counter-Macro Pullbacks).
 - [ ] Code `Sprint3_State/C_AlignmentScorer.mqh`.
 
 ## SPRINT 4: Execution & Risk (Pending)

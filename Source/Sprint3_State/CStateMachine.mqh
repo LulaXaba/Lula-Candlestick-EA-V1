@@ -12,9 +12,9 @@
 #include "C_ChoppyFilter.mqh"
 #include "C_RangeAnalyzer.mqh"
 #include "C_TrendAnalyzer.mqh"
+#include "C_RetracementDetector.mqh"
 
-// Forward declarations for remaining sub-analyzers
-class C_RetracementDetector;
+// Forward declaration for the final sub-analyzer
 class C_AlignmentScorer;
 
 class CStateMachine
@@ -28,8 +28,8 @@ private:
    C_ChoppyFilter* m_choppy_filter;
    C_RangeAnalyzer* m_range_analyzer;
    C_TrendAnalyzer* m_trend_analyzer;
-   
    C_RetracementDetector* m_retracement_detector;
+   
    C_AlignmentScorer* m_alignment_scorer;
 
    bool                    IsNewBar();
@@ -56,9 +56,8 @@ CStateMachine::CStateMachine() : m_symbol(""), m_last_update_time(0)
    m_choppy_filter        = new C_ChoppyFilter();
    m_range_analyzer       = new C_RangeAnalyzer();
    m_trend_analyzer       = new C_TrendAnalyzer();
+   m_retracement_detector = new C_RetracementDetector();
    
-   // Initialize remaining pointers to NULL
-   m_retracement_detector = NULL;
    m_alignment_scorer     = NULL;
   }
 
@@ -71,9 +70,10 @@ bool CStateMachine::Init(const string symbol)
   {
    m_symbol = (symbol == NULL) ? _Symbol : symbol;
    
-   if(m_choppy_filter != NULL)  m_choppy_filter.Init(m_symbol, 14, 20.0);
-   if(m_range_analyzer != NULL) m_range_analyzer.Init(m_symbol, 1.5, 4.0);
-   if(m_trend_analyzer != NULL) m_trend_analyzer.Init(m_symbol);
+   if(m_choppy_filter != NULL)        m_choppy_filter.Init(m_symbol, 14, 20.0);
+   if(m_range_analyzer != NULL)       m_range_analyzer.Init(m_symbol, 1.5, 4.0);
+   if(m_trend_analyzer != NULL)       m_trend_analyzer.Init(m_symbol);
+   if(m_retracement_detector != NULL) m_retracement_detector.Init(m_symbol);
    
    return true;
   }
@@ -83,8 +83,8 @@ void CStateMachine::Deinit()
    if(m_choppy_filter != NULL)        { delete m_choppy_filter; m_choppy_filter = NULL; }
    if(m_range_analyzer != NULL)       { delete m_range_analyzer; m_range_analyzer = NULL; }
    if(m_trend_analyzer != NULL)       { delete m_trend_analyzer; m_trend_analyzer = NULL; }
-   
    if(m_retracement_detector != NULL) { delete m_retracement_detector; m_retracement_detector = NULL; }
+   
    if(m_alignment_scorer != NULL)     { delete m_alignment_scorer; m_alignment_scorer = NULL; }
   }
 
@@ -118,16 +118,14 @@ void CStateMachine::Update(const SSensorData &sensor_data)
      }
    
    // Step 2: Check for Ranging Market (Trapped between bounded zones)
-   // If it evaluates to true, it sets m_current_state.state = STATE_RANGING
    if(!m_range_analyzer.Evaluate(sensor_data, m_current_state))
      {
-      // Step 3: Check for Trend Phase (Impulse)
-      // Only evaluate trending structure if we are NOT ranging
+      // Step 3: Check for Trend Phase (Local HH/HL Structure)
       m_trend_analyzer.Evaluate(sensor_data, m_current_state);
      }
    
-   // Step 4: Check for Retracement Phase (Pending C_RetracementDetector)
-   // m_retracement_detector.Evaluate(sensor_data, m_current_state);
+   // Step 4: Check for Retracement Phase (Counter-Macro Trend Interception)
+   m_retracement_detector.Evaluate(sensor_data, m_current_state);
    
    // Step 5: Calculate Timeframe Alignment Score
    // m_current_state.alignmentScore = m_alignment_scorer.CalculateScore(sensor_data);
