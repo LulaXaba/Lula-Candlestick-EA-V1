@@ -13,6 +13,7 @@
 #include "Detectors\C_InsideBarDetector.mqh"
 #include "Detectors\C_FalseBreakoutDetector.mqh"
 #include "Detectors\C_DblhcDbhlcDetector.mqh"
+#include "Detectors\C_ForceBarDetector.mqh"
 
 class CPatternEngine
   {
@@ -29,6 +30,7 @@ private:
    C_InsideBarDetector* m_insidebar_detector;
    C_FalseBreakoutDetector* m_fbo_detector;
    C_DblhcDbhlcDetector* m_dblhc_detector;
+   C_ForceBarDetector* m_force_detector;
 
    bool                 IsNewBar();
 
@@ -54,6 +56,7 @@ CPatternEngine::CPatternEngine() : m_pinbar_wick_ratio(0.65), m_min_score(70), m
    m_insidebar_detector = new C_InsideBarDetector();
    m_fbo_detector       = new C_FalseBreakoutDetector();
    m_dblhc_detector     = new C_DblhcDbhlcDetector();
+   m_force_detector     = new C_ForceBarDetector();
   }
 
 CPatternEngine::~CPatternEngine()
@@ -71,6 +74,7 @@ bool CPatternEngine::Init(double pinbar_ratio, int min_score)
    if(m_insidebar_detector != NULL) m_insidebar_detector.Init(_Symbol, m_min_score);
    if(m_fbo_detector != NULL)       m_fbo_detector.Init(_Symbol, m_min_score);
    if(m_dblhc_detector != NULL)     m_dblhc_detector.Init(_Symbol, m_min_score);
+   if(m_force_detector != NULL)     m_force_detector.Init(_Symbol, m_min_score);
    
    return true;
   }
@@ -83,6 +87,7 @@ void CPatternEngine::Deinit()
    if(m_insidebar_detector != NULL) { delete m_insidebar_detector; m_insidebar_detector = NULL; }
    if(m_fbo_detector != NULL)       { delete m_fbo_detector; m_fbo_detector = NULL; }
    if(m_dblhc_detector != NULL)     { delete m_dblhc_detector; m_dblhc_detector = NULL; }
+   if(m_force_detector != NULL)     { delete m_force_detector; m_force_detector = NULL; }
   }
 
 bool CPatternEngine::IsNewBar()
@@ -126,8 +131,11 @@ CPatternResult* CPatternEngine::ScanForPattern(CSensorArray* sensor)
 
    //--- DETECTOR PRIORITY 5: DBLHC / DBHLC
    if(m_dblhc_detector.Detect(1, sensor, m_latest_result)) return m_latest_result;
+
+   //--- DETECTOR PRIORITY 6: FORCE BAR
+   if(m_force_detector.Detect(1, sensor, m_latest_result)) return m_latest_result;
      
-   // TODO: Inject remaining 2 Detectors here
+   // TODO: Inject remaining 1 Detector here (Star Patterns)
    
    return m_latest_result;
   }
