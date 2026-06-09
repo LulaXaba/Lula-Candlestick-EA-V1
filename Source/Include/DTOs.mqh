@@ -6,7 +6,7 @@
 #define DTOS_MQH
 
 #include "Defines.mqh"
-
++
 //+------------------------------------------------------------------+
 //|  SSensorData — Complete sensor snapshot for one bar              |
 //+------------------------------------------------------------------+
