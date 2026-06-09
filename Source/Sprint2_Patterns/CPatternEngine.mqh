@@ -6,6 +6,7 @@
 #define CPATTERNENGINE_MQH
 
 #include "CPatternResult.mqh"
+#include "C_ContextAnalyzer.mqh"
 #include "..\Sprint1_Sensors\CSensorArray.mqh"
 
 #include "Detectors\C_PinBarDetector.mqh"
@@ -24,6 +25,7 @@ private:
    datetime             m_last_bar_time;
    
    CPatternResult* m_latest_result;
+   C_ContextAnalyzer* m_context_analyzer;
    
    //--- Detectors
    C_PinBarDetector* m_pinbar_detector;
@@ -53,6 +55,8 @@ public:
 CPatternEngine::CPatternEngine() : m_pinbar_wick_ratio(0.65), m_min_score(70), m_last_bar_time(0)
   {
    m_latest_result      = new CPatternResult();
+   m_context_analyzer   = new C_ContextAnalyzer();
+   
    m_pinbar_detector    = new C_PinBarDetector();
    m_engulfing_detector = new C_EngulfingDetector();
    m_insidebar_detector = new C_InsideBarDetector();
@@ -72,6 +76,8 @@ bool CPatternEngine::Init(double pinbar_ratio, int min_score)
    m_pinbar_wick_ratio = pinbar_ratio;
    m_min_score         = min_score;
    
+   if(m_context_analyzer != NULL)   m_context_analyzer.Init(_Symbol);
+   
    if(m_pinbar_detector != NULL)    m_pinbar_detector.Init(_Symbol, m_pinbar_wick_ratio, m_min_score);
    if(m_engulfing_detector != NULL) m_engulfing_detector.Init(_Symbol, m_min_score);
    if(m_insidebar_detector != NULL) m_insidebar_detector.Init(_Symbol, m_min_score);
@@ -86,6 +92,8 @@ bool CPatternEngine::Init(double pinbar_ratio, int min_score)
 void CPatternEngine::Deinit()
   {
    if(m_latest_result != NULL)      { delete m_latest_result; m_latest_result = NULL; }
+   if(m_context_analyzer != NULL)   { delete m_context_analyzer; m_context_analyzer = NULL; }
+   
    if(m_pinbar_detector != NULL)    { delete m_pinbar_detector; m_pinbar_detector = NULL; }
    if(m_engulfing_detector != NULL) { delete m_engulfing_detector; m_engulfing_detector = NULL; }
    if(m_insidebar_detector != NULL) { delete m_insidebar_detector; m_insidebar_detector = NULL; }
@@ -122,26 +130,26 @@ CPatternResult* CPatternEngine::ScanForPattern(CSensorArray* sensor)
    
    m_latest_result.Clear();
    
-   //--- DETECTOR PRIORITY 1: ENGULFING BAR (Grade A)
-   if(m_engulfing_detector.Detect(1, sensor, m_latest_result)) return m_latest_result;
+   bool patternFound = false;
+   
+   //--- DETECTOR PRIORITY CASCADE ---
+   if(!patternFound && m_engulfing_detector.Detect(1, sensor, m_latest_result)) patternFound = true;
+   if(!patternFound && m_fbo_detector.Detect(1, sensor, m_latest_result))       patternFound = true;
+   if(!patternFound && m_force_detector.Detect(1, sensor, m_latest_result))     patternFound = true;
+   if(!patternFound && m_star_detector.Detect(1, sensor, m_latest_result))      patternFound = true;
+   if(!patternFound && m_pinbar_detector.Detect(1, sensor, m_latest_result))    patternFound = true;
+   if(!patternFound && m_insidebar_detector.Detect(1, sensor, m_latest_result)) patternFound = true;
+   if(!patternFound && m_dblhc_detector.Detect(1, sensor, m_latest_result))     patternFound = true;
 
-   //--- DETECTOR PRIORITY 2: FALSE BREAKOUT (Grade A)
-   if(m_fbo_detector.Detect(1, sensor, m_latest_result)) return m_latest_result;
-
-   //--- DETECTOR PRIORITY 3: FORCE BAR (Momentum Grade A/B)
-   if(m_force_detector.Detect(1, sensor, m_latest_result)) return m_latest_result;
-
-   //--- DETECTOR PRIORITY 4: STAR PATTERNS (3-Bar Reversal)
-   if(m_star_detector.Detect(1, sensor, m_latest_result)) return m_latest_result;
-
-   //--- DETECTOR PRIORITY 5: PIN BAR
-   if(m_pinbar_detector.Detect(1, sensor, m_latest_result)) return m_latest_result;
-     
-   //--- DETECTOR PRIORITY 6: INSIDE BAR
-   if(m_insidebar_detector.Detect(1, sensor, m_latest_result)) return m_latest_result;
-
-   //--- DETECTOR PRIORITY 7: DBLHC / DBHLC
-   if(m_dblhc_detector.Detect(1, sensor, m_latest_result)) return m_latest_result;
+   //--- FINAL CONTEXT FILTER ---
+   if(patternFound)
+     {
+      // If the context analyzer rejects it, clear the result.
+      if(!m_context_analyzer.Analyze(1, sensor, m_latest_result))
+        {
+         m_latest_result.Clear();
+        }
+     }
 
    return m_latest_result;
   }

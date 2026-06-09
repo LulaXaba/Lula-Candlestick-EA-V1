@@ -33,8 +33,7 @@
 - [x] Code Detector 5: `C_DoubleCandleDetector.mqh` (Tier 1 — DBLHC/DBHLC).
 - [x] Code Detector 6: `C_ForceBarDetector.mqh` (Tier 1 — body ≥ 2× ATR, wick < 20% body).
 - [x] Code Detector 7: `C_StarPatternDetector.mqh` (Tier 2 — Morning/Evening Star, 3-candle).
-- [ ] Code Context Reader: `C_PivotContextReader.mqh` (informational — sets `zoneContext`).
-- [ ] Code Context Reader: `C_DailyContextWarner.mqh` (informational — -15 confidence penalty).
+- [x] Code Context Readers (Pivot Reversal & Daily Warning).
 
 ## SPRINT 3: State Machine (Pending)
 - [ ] `C_TrendAnalyzer.mqh`
