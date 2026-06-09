@@ -9,6 +9,7 @@
 #include "..\Sprint1_Sensors\CSensorArray.mqh"
 #include "Detectors\C_PinBarDetector.mqh"
 #include "Detectors\C_EngulfingDetector.mqh"
+#include "Detectors\C_InsideBarDetector.mqh"
 
 class CPatternEngine
   {
@@ -18,8 +19,11 @@ private:
    datetime             m_last_bar_time;
    
    CPatternResult* m_latest_result;
+   
+   //--- Detectors
    C_PinBarDetector* m_pinbar_detector;
    C_EngulfingDetector* m_engulfing_detector;
+   C_InsideBarDetector* m_insidebar_detector;
 
    bool                 IsNewBar();
 
@@ -42,6 +46,7 @@ CPatternEngine::CPatternEngine() : m_pinbar_wick_ratio(0.65), m_min_score(70), m
    m_latest_result      = new CPatternResult();
    m_pinbar_detector    = new C_PinBarDetector();
    m_engulfing_detector = new C_EngulfingDetector();
+   m_insidebar_detector = new C_InsideBarDetector();
   }
 
 CPatternEngine::~CPatternEngine()
@@ -56,6 +61,7 @@ bool CPatternEngine::Init(double pinbar_ratio, int min_score)
    
    if(m_pinbar_detector != NULL)    m_pinbar_detector.Init(_Symbol, m_pinbar_wick_ratio, m_min_score);
    if(m_engulfing_detector != NULL) m_engulfing_detector.Init(_Symbol, m_min_score);
+   if(m_insidebar_detector != NULL) m_insidebar_detector.Init(_Symbol, m_min_score);
    
    return true;
   }
@@ -65,6 +71,7 @@ void CPatternEngine::Deinit()
    if(m_latest_result != NULL)      { delete m_latest_result; m_latest_result = NULL; }
    if(m_pinbar_detector != NULL)    { delete m_pinbar_detector; m_pinbar_detector = NULL; }
    if(m_engulfing_detector != NULL) { delete m_engulfing_detector; m_engulfing_detector = NULL; }
+   if(m_insidebar_detector != NULL) { delete m_insidebar_detector; m_insidebar_detector = NULL; }
   }
 
 bool CPatternEngine::IsNewBar()
@@ -106,7 +113,13 @@ CPatternResult* CPatternEngine::ScanForPattern(CSensorArray* sensor)
       return m_latest_result;
      }
      
-   // TODO: Inject remaining 5 Detectors here
+   //--- DETECTOR PRIORITY 3: INSIDE BAR
+   if(m_insidebar_detector.Detect(1, sensor, m_latest_result))
+     {
+      return m_latest_result;
+     }
+     
+   // TODO: Inject remaining 4 Detectors here
    
    return m_latest_result;
   }
