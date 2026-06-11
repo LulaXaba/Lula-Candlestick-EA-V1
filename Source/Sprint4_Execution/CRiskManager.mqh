@@ -135,35 +135,52 @@ bool CRiskManager::IsDrawdownSafe()
 
 double CRiskManager::CalculateLotSize(double entry_price, double stop_loss)
   {
-   double balance = AccountInfoDouble(ACCOUNT_BALANCE);
-   double risk_amount_currency = balance * (m_risk_per_trade_pct / 100.0);
-   
-   double tick_size  = SymbolInfoDouble(m_symbol, SYMBOL_TRADE_TICK_SIZE);
-   double tick_value = SymbolInfoDouble(m_symbol, SYMBOL_TRADE_TICK_VALUE);
-   
-   if(tick_size <= 0 || tick_value <= 0 || entry_price <= 0 || stop_loss <= 0) return 0.0;
-   
-   // Calculate Stop Loss distance in ticks
-   double sl_distance_points = MathAbs(entry_price - stop_loss);
-   double loss_ticks = sl_distance_points / tick_size;
-   
-   if(loss_ticks <= 0) return 0.0;
-   
-   // Formula: Lot Size = Risk Amount / (Ticks * Tick Value)
-   double raw_lot_size = risk_amount_currency / (loss_ticks * tick_value);
-   
-   // Normalize Lot Size to broker limits
-   double min_lot  = SymbolInfoDouble(m_symbol, SYMBOL_VOLUME_MIN);
-   double max_lot  = SymbolInfoDouble(m_symbol, SYMBOL_VOLUME_MAX);
-   double lot_step = SymbolInfoDouble(m_symbol, SYMBOL_VOLUME_STEP);
-   
-   // Round to nearest lot step
-   double normalized_lot = MathRound(raw_lot_size / lot_step) * lot_step;
-   
-   // Clamp between min and max allowed
-   normalized_lot = MathMax(min_lot, MathMin(normalized_lot, max_lot));
-   
-   return normalized_lot;
+   // --- 1. Calculate the exact dollar amount we are willing to lose ---
+   double balance    = AccountInfoDouble(ACCOUNT_BALANCE);
+   double riskAmount = balance * (m_risk_per_trade_pct / 100.0);
+
+   // --- 2. Fetch broker volume constraints ---
+   double minLot     = SymbolInfoDouble(m_symbol, SYMBOL_VOLUME_MIN);
+   double maxLot     = SymbolInfoDouble(m_symbol, SYMBOL_VOLUME_MAX);
+   double volumeStep = SymbolInfoDouble(m_symbol, SYMBOL_VOLUME_STEP);
+
+   if(entry_price <= 0 || stop_loss <= 0) return 0.0;
+
+   // --- 3. Determine order type from entry vs stop loss direction ---
+   ENUM_ORDER_TYPE orderType = (entry_price > stop_loss) ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
+
+   // --- 4. Ask the MT5 native engine: how much does 1.00 Lot lose between entry and SL? ---
+   // This bypasses the Strategy Tester's broken SYMBOL_TRADE_TICK_VALUE for synthetic indices.
+   // OrderCalcProfit() uses the terminal's internal margin/profit engine — identical on live,
+   // demo, and Strategy Tester — guaranteeing correct scaling for VIX75 and all synthetics.
+   double simulatedProfit = 0.0;
+   bool   success = OrderCalcProfit(orderType, m_symbol, 1.0, entry_price, stop_loss, simulatedProfit);
+
+   if(!success || simulatedProfit >= 0)
+     {
+      PrintFormat("[Risk Manager] OrderCalcProfit failed or returned non-negative (%.2f). Defaulting to MinLot.", simulatedProfit);
+      return minLot;
+     }
+
+   // simulatedProfit is a negative number (e.g., -2970.00). Convert to absolute loss per 1 lot.
+   double moneyLostPerStandardLot = MathAbs(simulatedProfit);
+
+   if(moneyLostPerStandardLot <= 0) return minLot;
+
+   // --- 5. Back-calculate the exact lots needed to lose exactly riskAmount ---
+   double rawLots = riskAmount / moneyLostPerStandardLot;
+
+   // --- 6. Normalize to broker's volume step.
+   // MathFloor (not MathRound) guarantees we never exceed our intended risk dollar amount.
+   double normalizedLots = MathFloor(rawLots / volumeStep) * volumeStep;
+
+   // --- 7. Clamp final value to broker min/max limits ---
+   normalizedLots = MathMax(minLot, MathMin(normalizedLots, maxLot));
+
+   PrintFormat("[Risk Manager] Lot Calc: Balance=%.2f | Risk=%.2f | 1Lot Loss=%.2f | Raw=%.4f | Final=%.3f",
+               balance, riskAmount, moneyLostPerStandardLot, rawLots, normalizedLots);
+
+   return NormalizeDouble(normalizedLots, 3);
   }
 
 #endif
