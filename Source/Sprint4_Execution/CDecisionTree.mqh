@@ -7,9 +7,7 @@
 
 #include "..\Include\Defines.mqh"
 #include "..\Include\DTOs.mqh"
-
-// Forward declaration of the Risk Manager (to be built next)
-class CRiskManager;
+#include "CRiskManager.mqh"
 
 class CDecisionTree
   {
@@ -139,11 +137,7 @@ bool CDecisionTree::Gate6_RiskRewardMet(const SPatternResult &pattern, CRiskMana
    if(risk_manager == NULL) return false;
    if(pattern.stopLoss <= 0 || pattern.takeProfit <= 0) return false;
    
-   // We will build GetMinRR() into CRiskManager next
-   // return (pattern.rrRatio >= risk_manager.GetMinRR()); 
-   
-   // Fallback stub until Risk Manager is implemented
-   return (pattern.rrRatio >= 2.0); 
+   return (pattern.rrRatio >= risk_manager.GetMinRR()); 
   }
 
 //===================================================================
@@ -153,10 +147,7 @@ bool CDecisionTree::Gate7_DrawdownSafe(CRiskManager* risk_manager)
   {
    if(risk_manager == NULL) return false;
    
-   // We will build IsDrawdownSafe() into CRiskManager next
-   // return risk_manager.IsDrawdownSafe();
-   
-   return true; // Stub until Risk Manager is built
+   return risk_manager.IsDrawdownSafe();
   }
 
 //===================================================================

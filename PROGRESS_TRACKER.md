@@ -44,8 +44,8 @@
 - [x] Code `Sprint3_State/C_AlignmentScorer.mqh` (Confidence Scorer).
 **SPRINT 3 IS 100% COMPLETE.**
 
-## SPRINT 4: Execution & Risk (Pending)
-- [ ] `CDecisionTree.mqh` (Gate 5 Override Clause, ATR gate, rollover filter)
-- [ ] `CRiskManager.mqh`
-- [ ] `CTradeExecutor.mqh` (retry loop, rollover window pause)
-- [ ] `CCorrelationFilter.mqh`
+## SPRINT 4: The Execution Layer
+- [x] Code `Sprint4_Execution/CDecisionTree.mqh` (The 7 Gates).
+- [x] Code `Sprint4_Execution/CRiskManager.mqh` (Drawdown & Lot Sizing).
+- [ ] Code `Sprint4_Execution/CTradeExecutor.mqh` (Order Routing).
+- [ ] Wire everything into `Lula_V1.mq5`.
