@@ -14,6 +14,7 @@ class CDecisionTree
 private:
    string            m_symbol;
    int               m_min_pattern_score;
+   double            m_max_sl_distance;   // Gate 8: maximum SL distance in price units
 
    //--- Rejection Logger
    void              LogRejection(int gateId, string reason);
@@ -26,24 +27,27 @@ private:
    bool              Gate5_1HStructureValid(const SPatternResult &pattern, const SMarketState &state);
    bool              Gate6_RiskRewardMet(const SPatternResult &pattern, CRiskManager* risk_manager);
    bool              Gate7_DrawdownSafe(CRiskManager* risk_manager);
+   bool              Gate8_StopLossLimit(const SPatternResult &pattern);
 
 public:
                      CDecisionTree();
                     ~CDecisionTree();
 
-   bool              Init(const string symbol, int min_pattern_score);
+   bool              Init(const string symbol, int min_pattern_score, double max_sl_distance = MAX_SL_DISTANCE_POINTS);
    
    //--- Main Execution Evaluation
    bool              Evaluate(const SSensorData &sensor, const SPatternResult &pattern, const SMarketState &state, CRiskManager* risk_manager);
   };
 
-CDecisionTree::CDecisionTree() : m_symbol(""), m_min_pattern_score(70) {}
+CDecisionTree::CDecisionTree() : m_symbol(""), m_min_pattern_score(70), m_max_sl_distance(MAX_SL_DISTANCE_POINTS) {}
 CDecisionTree::~CDecisionTree() {}
 
-bool CDecisionTree::Init(const string symbol, int min_pattern_score)
+bool CDecisionTree::Init(const string symbol, int min_pattern_score, double max_sl_distance)
   {
-   m_symbol = symbol;
+   m_symbol            = symbol;
    m_min_pattern_score = min_pattern_score;
+   m_max_sl_distance   = max_sl_distance;
+   PrintFormat("[Decision Tree] Initialized. Min Score: %d | Max SL Distance: %.1f pts", m_min_pattern_score, m_max_sl_distance);
    return true;
   }
 
@@ -151,6 +155,23 @@ bool CDecisionTree::Gate7_DrawdownSafe(CRiskManager* risk_manager)
   }
 
 //===================================================================
+// GATE 8: Stop Loss Distance Cap (Account-Size Protection)
+// Rejects setups whose SL is too wide for the minimum lot size to
+// remain within the intended risk percentage. This is the primary
+// guard against the VIX75 minimum-lot stop-out scenario.
+//===================================================================
+bool CDecisionTree::Gate8_StopLossLimit(const SPatternResult &pattern)
+  {
+   double sl_distance = MathAbs(pattern.entryPrice - pattern.stopLoss);
+   if(sl_distance > m_max_sl_distance)
+     {
+      LogRejection(8, StringFormat("SL distance %.1f exceeds maximum allowed %.1f pts.", sl_distance, m_max_sl_distance));
+      return false;
+     }
+   return true;
+  }
+
+//===================================================================
 // MAIN ORCHESTRATOR EVALUATION
 //===================================================================
 bool CDecisionTree::Evaluate(const SSensorData &sensor, const SPatternResult &pattern, const SMarketState &state, CRiskManager* risk_manager)
@@ -197,7 +218,12 @@ bool CDecisionTree::Evaluate(const SSensorData &sensor, const SPatternResult &pa
       return false;
      }
 
-   Print("[Lula V1] All 7 gates PASSED — valid trade setup locked.");
+   if(!Gate8_StopLossLimit(pattern))
+     {
+      return false; // Rejection already logged inside Gate8
+     }
+
+   Print("[Lula V1] All 8 gates PASSED — valid trade setup locked.");
    return true;
   }
 

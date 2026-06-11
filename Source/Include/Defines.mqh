@@ -138,6 +138,7 @@ enum ENUM_EXECUTION_STATE
 #define LOT_REDUCTION_FACTOR      0.5   // Halve lot size after consecutive losses
 #define MARGIN_LEVEL_MIN         200.0  // Minimum margin level % — Gate 7
 #define RISK_PER_TRADE_PCT         1.0  // Default 1% risk per trade
+#define MAX_SL_DISTANCE_POINTS  2500.0  // Gate 8: max SL distance (price units) — rejects wide VIX75 stops
 
 //+------------------------------------------------------------------+
 //| Pattern Recognition Constants                                     |

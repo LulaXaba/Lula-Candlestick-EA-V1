@@ -36,7 +36,7 @@ input double inp_PinBar_Ratio     = 0.65; // Min wick-to-range ratio for Pin Bar
 input int    inp_MinPatternScore  = 70;   // Min confidence score (0-100)
 
 input group "=== 3. RISK MANAGEMENT ==="
-input double inp_RiskPerTradePct  = 1.0;  // Risk per trade (% of account balance)
+input double inp_RiskPerTradePct  = 0.2;  // Risk per trade (% of account balance) — 0.2% for wide VIX75 SLs
 input double inp_MaxDailyDDPct    = 4.0;  // Max daily drawdown (%)
 input double inp_MaxTotalDDPct    = 6.0;  // Max total session drawdown (%)
 input double inp_MinRRRatio       = 2.0;  // Minimum acceptable Risk:Reward ratio
@@ -44,6 +44,7 @@ input double inp_MinRRRatio       = 2.0;  // Minimum acceptable Risk:Reward rati
 input group "=== 4. EXECUTION LAYER ==="
 input ulong  inp_MagicNumber      = 777777; // Unique EA identifier
 input ulong  inp_Slippage         = 10;     // Max slippage in points
+input double inp_MaxSLPoints      = 2500.0; // Gate 8: max SL distance (price units). Rejects overly wide stops.
 
 //+------------------------------------------------------------------+
 //| GLOBAL SYSTEM POINTERS                                           |
@@ -88,7 +89,7 @@ int OnInit()
       Print("[Lula V1] BOOT FAILED: CStateMachine::Init()");
       return INIT_FAILED;
      }
-   if(!g_decision.Init(_Symbol, inp_MinPatternScore))
+   if(!g_decision.Init(_Symbol, inp_MinPatternScore, inp_MaxSLPoints))
      {
       Print("[Lula V1] BOOT FAILED: CDecisionTree::Init()");
       return INIT_FAILED;
