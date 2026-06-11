@@ -62,13 +62,13 @@ void C_RetracementDetector::Evaluate(const SSensorData &sensor_data, SMarketStat
       // Overwrite the local trend state with the Retracement Phase classification
       out_state.state = STATE_RETRACEMENT;
       
-      // Optionally flag the implied direction of the pullback
-      out_state.impliedDirection = isBullishRetracement ? DIRECTION_LONG : DIRECTION_SHORT;
+      // Optionally flag the implied direction of the pullback (1 = Long, -1 = Short)
+      out_state.impliedDirection = isBullishRetracement ? 1 : -1;
      }
    else
      {
       // If the local trend aligns perfectly with the Macro bias, it is an IMPULSIVE move.
-      out_state.impliedDirection = (out_state.state == STATE_TRENDING_UP) ? DIRECTION_LONG : DIRECTION_SHORT;
+      out_state.impliedDirection = (out_state.state == STATE_TRENDING_UP) ? 1 : -1;
      }
   }
 

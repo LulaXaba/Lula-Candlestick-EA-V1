@@ -6,7 +6,7 @@
 #define DTOS_MQH
 
 #include "Defines.mqh"
-+
+
 //+------------------------------------------------------------------+
 //|  SSensorData — Complete sensor snapshot for one bar              |
 //+------------------------------------------------------------------+
@@ -19,8 +19,9 @@ struct SSensorData
    double         atr_H1;
    double         atr_Current;
 
-   //--- KAMA (adaptive trend baseline)
+   //--- KAMA (adaptive trend baseline & momentum)
    double         kama;
+   double         kamaSlope;
 
    //--- Price zone proximity
    bool           isAtSupplyZone;
@@ -29,22 +30,29 @@ struct SSensorData
    double         zoneHigh;
    double         zoneLow;
 
-   //--- Weekly macro bias & context
+   //--- Multi-Timeframe Bias
    ENUM_WEEKLY_BIAS weeklyBias;
-   double           weeklyATR;        // Raw ATR(14) on Weekly TF — gate vs VIX75_MIN_ATR
-   bool             isHighVolMode;    // true if weekly ATR > 2x 14-period average
-   bool             isRolloverWindow; // true if inside 23:55–00:05 broker rollover window
+   ENUM_WEEKLY_BIAS dailyBias;
+   ENUM_WEEKLY_BIAS h4Bias;
+
+   //--- Volatility & Context
+   double           weeklyATR;
+   bool             isHighVolMode;
+   bool             isRolloverWindow;
 
    //--- Constructor: zero-safe defaults
    SSensorData() {
       atr_W1 = atr_D1 = atr_H4 = atr_H1 = atr_Current = 0.0;
       kama             = 0.0;
+      kamaSlope        = 0.0;
       isAtSupplyZone   = false;
       isAtDemandZone   = false;
       zoneRank         = RANK_WEAK;
       zoneHigh         = 0.0;
       zoneLow          = 0.0;
       weeklyBias       = BIAS_UNDEFINED;
+      dailyBias        = BIAS_UNDEFINED;
+      h4Bias           = BIAS_UNDEFINED;
       weeklyATR        = 0.0;
       isHighVolMode    = false;
       isRolloverWindow = false;
@@ -95,17 +103,19 @@ struct SPatternResult
 //+------------------------------------------------------------------+
 struct SMarketState
 {
-   ENUM_MARKET_STATE state;
-   int               alignmentScore;    // 0-100 multi-TF alignment
-   bool              isTrendingUp;
-   bool              isTrendingDown;
-   bool              isChoppy;
-   bool              isRetracementZone;
+   ENUM_MARKET_STATE    state;
+   int                  alignmentScore;    // 0-100 multi-TF alignment
+   int                  impliedDirection;  // 0 = None, 1 = Long, -1 = Short
+   bool                 isTrendingUp;
+   bool                 isTrendingDown;
+   bool                 isChoppy;
+   bool                 isRetracementZone;
 
    //--- Constructor
    SMarketState() {
       state             = STATE_UNDEFINED;
       alignmentScore    = 0;
+      impliedDirection  = 0;
       isTrendingUp      = false;
       isTrendingDown    = false;
       isChoppy          = false;

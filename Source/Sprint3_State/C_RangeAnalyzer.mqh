@@ -50,9 +50,9 @@ bool C_RangeAnalyzer::Evaluate(const SSensorData &sensor_data, SMarketState &out
    // If the market is already flagged as choppy, we do not evaluate ranging.
    if(out_state.state == STATE_CHOPPY) return false;
 
-   // Requires Sprint 1 to have identified nearest opposing zones
-   double supply = sensor_data.nearestSupply;
-   double demand = sensor_data.nearestDemand;
+   // FIXED: Use the correct variable names from SSensorData (zoneHigh/zoneLow, not nearestSupply/nearestDemand)
+   double supply = sensor_data.zoneHigh;
+   double demand = sensor_data.zoneLow;
    
    // If we don't have a defined ceiling and floor, we cannot be in a defined range
    if(supply <= 0 || demand <= 0) return false;
@@ -63,7 +63,7 @@ bool C_RangeAnalyzer::Evaluate(const SSensorData &sensor_data, SMarketState &out
    double atr = sensor_data.atr_Current > 0 ? sensor_data.atr_Current : 100 * _Point;
 
    // 1. Evaluate Range Bounds (Too tight = Chop, Too wide = Trend/Macro Structure)
-   bool isWideEnough = range_distance >= (atr * m_min_atr_multiplier);
+   bool isWideEnough  = range_distance >= (atr * m_min_atr_multiplier);
    bool isTightEnough = range_distance <= (atr * m_max_atr_multiplier);
 
    if(!isWideEnough || !isTightEnough) return false;
