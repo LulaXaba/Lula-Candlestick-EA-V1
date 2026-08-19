@@ -22,7 +22,12 @@ public:
    bool     Init(const string symbol, const int period);
    void     Deinit();
    void     Update();
-   double   GetKAMA()      const { return m_kama; }
+   
+   double   GetKAMA() const { return m_kama; }
+   
+   //--- V2 Dynamic S/R checks
+   bool     IsAtDynamicSupport(double price, double variance) const;
+   bool     IsAtDynamicResistance(double price, double variance) const;
 };
 
 C_KAMAModule::C_KAMAModule() : m_handle(INVALID_HANDLE), m_kama(0.0), m_period(14) {}
@@ -64,6 +69,22 @@ void C_KAMAModule::Update()
    if(CopyBuffer(m_handle, 0, 1, 1, buf) >= 1)
       m_kama = buf[0];
    // If data unavailable, keep previous value — do not reset to 0
+}
+
+//+------------------------------------------------------------------+
+//| V2: Dynamic S/R Methods                                          |
+//+------------------------------------------------------------------+
+bool C_KAMAModule::IsAtDynamicSupport(double price, double variance) const
+{
+   if(m_kama == 0.0) return false;
+   // Price must be at or slightly above/below KAMA to be "at support"
+   return (MathAbs(price - m_kama) <= variance);
+}
+
+bool C_KAMAModule::IsAtDynamicResistance(double price, double variance) const
+{
+   if(m_kama == 0.0) return false;
+   return (MathAbs(price - m_kama) <= variance);
 }
 
 #endif // C_KAMAMODULE_MQH

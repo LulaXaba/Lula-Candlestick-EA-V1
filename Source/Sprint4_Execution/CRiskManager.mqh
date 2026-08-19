@@ -31,6 +31,9 @@ public:
    
    //--- Execution Math
    double            CalculateLotSize(double entry_price, double stop_loss);
+   double            CalculateStructureStopLoss(double entryPrice, ENUM_TRADE_DIRECTION dir, double structuralExtreme, double atrBuffer);
+   double            CalculateFibTarget(double swingHigh, double swingLow, double fibLevel, ENUM_TRADE_DIRECTION dir);
+   double            ApplyConfluenceLotMultiplier(double baseLot, ENUM_CONFLUENCE_GRADE grade);
   };
 
 CRiskManager::CRiskManager() : m_symbol(""), m_risk_per_trade_pct(1.0), m_max_daily_dd_pct(4.0), m_max_total_dd_pct(6.0), m_min_rr_ratio(2.0) {}
@@ -182,5 +185,67 @@ double CRiskManager::CalculateLotSize(double entry_price, double stop_loss)
 
    return NormalizeDouble(normalizedLots, 3);
   }
+
+//+------------------------------------------------------------------+
+//| V2: Structure-Based Stop Loss                                    |
+//+------------------------------------------------------------------+
+double CRiskManager::CalculateStructureStopLoss(double entryPrice, ENUM_TRADE_DIRECTION dir, double structuralExtreme, double atrBuffer)
+{
+   double sl = 0.0;
+   if(dir == DIRECTION_LONG)
+   {
+      sl = structuralExtreme - atrBuffer;
+   }
+   else if(dir == DIRECTION_SHORT)
+   {
+      sl = structuralExtreme + atrBuffer;
+   }
+   return sl; // Requires NormalizeDouble externally based on symbol digits
+}
+
+//+------------------------------------------------------------------+
+//| V2: Fibonacci Targets                                            |
+//+------------------------------------------------------------------+
+double CRiskManager::CalculateFibTarget(double swingHigh, double swingLow, double fibLevel, ENUM_TRADE_DIRECTION dir)
+{
+   double swingRange = MathAbs(swingHigh - swingLow);
+   double target = 0.0;
+   
+   if(dir == DIRECTION_LONG)
+   {
+      target = swingLow + (swingRange * fibLevel); // If entering on pullback
+   }
+   else if(dir == DIRECTION_SHORT)
+   {
+      target = swingHigh - (swingRange * fibLevel);
+   }
+   return target;
+}
+
+//+------------------------------------------------------------------+
+//| V2: Confluence Lot Multiplier                                    |
+//+------------------------------------------------------------------+
+double CRiskManager::ApplyConfluenceLotMultiplier(double baseLot, ENUM_CONFLUENCE_GRADE grade)
+{
+   double multiplier = 1.0;
+   switch(grade)
+   {
+      case GRADE_A_PLUS: multiplier = 1.00; break; // 100%
+      case GRADE_A:      multiplier = 0.75; break; // 75%
+      case GRADE_B:      multiplier = 0.50; break; // 50%
+      case GRADE_C:      multiplier = 0.25; break; // 25%
+      case GRADE_REJECT: return 0.0;
+   }
+   
+   double minLot     = SymbolInfoDouble(m_symbol, SYMBOL_VOLUME_MIN);
+   double maxLot     = SymbolInfoDouble(m_symbol, SYMBOL_VOLUME_MAX);
+   double volumeStep = SymbolInfoDouble(m_symbol, SYMBOL_VOLUME_STEP);
+   
+   double scaledLot = baseLot * multiplier;
+   double finalLot = MathFloor(scaledLot / volumeStep) * volumeStep;
+   finalLot = MathMax(minLot, MathMin(finalLot, maxLot));
+   
+   return finalLot;
+}
 
 #endif

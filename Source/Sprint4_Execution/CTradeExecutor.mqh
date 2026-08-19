@@ -24,6 +24,7 @@ public:
    
    //--- Order Routing
    bool              ExecuteTrade(const SPatternResult &pattern, double lot_size);
+   bool              ClosePartial(ulong ticket, double percentToClose);
   };
 
 CTradeExecutor::CTradeExecutor() : m_symbol(""), m_magic_number(0) {}
@@ -90,5 +91,45 @@ bool CTradeExecutor::ExecuteTrade(const SPatternResult &pattern, double lot_size
 
    return success;
   }
+
+//+------------------------------------------------------------------+
+//| V2: Partial Close with Safety Bounds                             |
+//+------------------------------------------------------------------+
+bool CTradeExecutor::ClosePartial(ulong ticket, double percentToClose)
+{
+   if(percentToClose <= 0 || percentToClose >= 100.0) return false;
+   
+   if(!PositionSelectByTicket(ticket)) return false;
+   
+   double currentVolume = PositionGetDouble(POSITION_VOLUME);
+   double minLot = SymbolInfoDouble(m_symbol, SYMBOL_VOLUME_MIN);
+   double stepLot = SymbolInfoDouble(m_symbol, SYMBOL_VOLUME_STEP);
+   
+   double targetVolume = currentVolume * (percentToClose / 100.0);
+   double normalizedVolume = MathFloor(targetVolume / stepLot) * stepLot;
+   
+   // If the amount we want to close is less than min lot, skip it (User Rule)
+   if(normalizedVolume < minLot)
+   {
+      PrintFormat("[Trade Executor] Partial close volume %.2f is less than MinLot %.2f. Skipping.", normalizedVolume, minLot);
+      return false;
+   }
+   
+   // If remaining volume would be < minLot, we can't do it either
+   double remainingVolume = currentVolume - normalizedVolume;
+   if(remainingVolume > 0 && remainingVolume < minLot)
+   {
+      PrintFormat("[Trade Executor] Partial close leaves %.2f < MinLot. Skipping.", remainingVolume);
+      return false; 
+   }
+   
+   bool success = m_trade.PositionClosePartial(ticket, normalizedVolume);
+   if(success)
+      PrintFormat("[Trade Executor] Partially closed %.2f lots on ticket %d", normalizedVolume, ticket);
+   else
+      PrintFormat("[Trade Executor] Partial close failed for ticket %d. Error: %d", ticket, m_trade.ResultRetcode());
+      
+   return success;
+}
 
 #endif
