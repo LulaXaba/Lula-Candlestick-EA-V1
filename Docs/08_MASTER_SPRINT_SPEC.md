@@ -1,124 +1,70 @@
-# 08 — Master Sprint Specification (Sprints 1–4)
+# 08 — Master Sprint Specification (V2 Upgrade)
 
 ---
 
-## Sprint 1 — The Eyes (Sensors)
-**Goal:** Build the data acquisition layer. The EA can "see" the market.
+## Sprint 1: Architecture & Foundation
+**Goal**: Establish the data structures, enums, and formal spec for V2.
 
-### Files
-| File | Responsibility |
-|------|---------------|
-| `C_ATRModule.mqh` | iATR handles for 5 TFs; exposes `GetATR(TF)` |
-| `C_KAMAModule.mqh` | iAMA (KAMA) on current TF; exposes `GetKAMA()` |
-| `CPriceZone.mqh` | Swing H/L scan; zone rank; `IsAtSupplyZone()` / `IsAtDemandZone()` |
-| `CSensorArray.mqh` | Orchestrator; aggregates all into `SSensorData` via `GetData()` |
-| `Detectors/CEngine1_SupplyDemand.mqh` | Supply/Demand detection (1 touch + 2xATR) |
-| `Detectors/CEngine2_StandardSR.mqh` | Standard S/R detection (2+ touches) |
-| `Detectors/CEngine3_WeeklyMacro.mqh` | Weekly macro levels (6-month H/L) |
-| `Detectors/C_RoleReversalMonitor.mqh` | Role reversal detection (broken level retests) |
+### Tasks
+- Create `Docs/Plans/v2-architecture-spec.md` with full class/method contracts.
+- Update `Include/Defines.mqh` - Add V2 constants (ZigZag params, Fib levels, KAMA variances).
+- Update `Include/DTOs.mqh` - Add `ENUM_TREND_STATE`, `ConfluenceGrade`, TP1/TP2 fields.
 
 ### Acceptance Criteria
-- All files compile: **0 errors, 0 warnings**.
-- `CSensorArray::GetData()` returns populated `SSensorData` on every bar.
-- ATR values match the MT5 built-in ATR indicator (visual comparison in charts).
-- Unit test: Print ATR(H1), ATR(H4), ATR(D1), KAMA on every new bar.
+- Specifications clearly outline the role of each new class.
+- All Enums and constants compile without errors.
 
 ---
 
-## Sprint 2 — The Language (Patterns)
-**Goal:** Detect all 4-Tier Institutional Footprint patterns at key zones.
-Expose a single `CPatternEngine::Detect()` call that returns the highest-tier
-`CPatternResult` for the current bar.
+## Sprint 2: Core Context Engines
+**Goal**: Build the indicators and state engines that understand the market.
 
-### DTO: `CPatternResult` (class — replaces old `SPatternResult` struct)
-Defined in `Include/DTOs.mqh`.
-
-| Field | Type | Purpose |
-|-------|------|---------|
-| `patternType` | `ENUM_PATTERN_TYPE` | Pattern identifier |
-| `direction` | `ENUM_TRADE_DIRECTION` | `DIRECTION_LONG` or `DIRECTION_SHORT` |
-| `tier` | `int` | 1 = highest institutional weight, 3 = lowest |
-| `isGradeA` | `bool` | `true` **only** for Grade A Engulfing — triggers Gate 5 bypass |
-| `confidenceScore` | `int` | 0–100; must be ≥ `inp_Pattern_MinScore (70)` to pass Gate 4 |
-| `entryPrice` | `double` | Calculated entry price |
-| `slPrice` | `double` | Stop Loss price |
-| `tpPrice` | `double` | Take Profit price |
-| `rrRatio` | `double` | Risk:Reward ratio |
-| `barTime` | `datetime` | Time of the signal candle |
-| `IsValid()` | `bool` | Returns `true` if type ≠ NONE, score ≥ threshold, prices > 0 |
-
-### Utility: `Cmp()` Tolerance Function
-```cpp
-// Defined in Sprint2_Patterns/Utility/Cmp.mqh
-bool Cmp(double a, double b, double epsilon = 1e-8);
-```
-> **MQL5 Rule:** Never use `==` to compare doubles. All pattern geometry checks
-> (body size, wick ratios, range comparisons) must use `Cmp()` to avoid
-> floating-point equality failures in backtesting.
-
-### Files
-
-#### Orchestrator
-| File | Responsibility |
-|------|---------------|
-| `CPatternEngine.mqh` | Runs all 7 detectors + `C_ContextAnalyzer`. Returns highest-priority valid `CPatternResult`. Owns instances, safely deletes in destructor. |
-| `C_ContextAnalyzer.mqh` | Unified algorithmic sieve. Enforces Daily Warning (60% wick rejection limit) and Pivot Reversal (must occur at a zone or 8-bar fractal extreme). |
-
-#### Detectors
-| File | Responsibility |
-|------|---------------|
-| `C_EngulfingDetector.mqh` | Current body engulfs previous body. `isGradeA = true` if body ratio ≥ `1.5×`. |
-| `C_FalseBreakoutDetector.mqh` | Dynamic VIX75 (10% ATR) vs Forex (5% ATR) penetration logic. Triggers Grade A. |
-| `C_ForceBarDetector.mqh` | Body ≥ 80% range, size ≥ 1× ATR. Displacement ≥ `2.0× ATR` triggers Grade A. |
-| `C_StarPatternDetector.mqh` | 3-bar morning/evening stars (Directional Base → Exhaustion → Reversal). |
-| `C_PinBarDetector.mqh` | Wick-ratio test; wick ≥ `0.65`. |
-| `C_InsideBarDetector.mqh` | Strict High/Low inside bounds; directional bias derived from Mother Bar. |
-| `C_DblhcDbhlcDetector.mqh` | ATR variance tolerance matching (5% VIX75 / 2% Forex) for floor/ceiling blocks. |
+### Tasks
+- Scaffold `CTrendStructure` - Reads ZigZag buffer, validates nodes, and exposes the trend state.
+- Scaffold/Upgrade `C_KAMAModule` - Promote to dynamic S/R.
+- Integrate `CMarketContext` - Merge V1 `CSensorEngines`, `CTrendStructure`, and `C_KAMAModule`.
 
 ### Acceptance Criteria
-- All files compile: **0 errors, 0 warnings** in MetaEditor 5.
-- `CPatternEngine::Detect()` correctly identifies all 7 pattern types on historical test data.
-- `CPatternResult.IsValid()` returns `false` for `PATTERN_NONE`, zero prices, or score < 70.
-- `isGradeA` triggers correctly for Engulfing, False Breakouts, and Extreme Force Bars.
-- `Cmp()` is used for **all** floating-point equality checks.
-- Memory contract: `CPatternEngine` owns and deletes all detectors + context analyzer.
-- **SPRINT 2 STATUS: 100% COMPLETE** ✅
+- `CTrendStructure` correctly identifies HH/HL and LH/LL nodes via ZigZag.
+- `CMarketContext` provides a unified view of the market state.
+- Print() tests verify ZigZag node reading.
 
 ---
 
-## Sprint 3 — The Judgment (State Machine)
-**Goal:** Determine market state and multi-timeframe alignment score.
+## Sprint 3: Trade Execution & Risk Safety
+**Goal**: Upgrade the executor to handle structure-based exits and partials safely.
 
-### Files
-| File | Responsibility |
-|------|---------------|
-| `C_TrendAnalyzer.mqh` | Evaluates KAMA slope & current price vs KAMA from `SSensorData`. |
-| `C_RangeAnalyzer.mqh` | Reads structural extremes using `CSensorArray` context. |
-| `C_ChoppyFilter.mqh` | Uses ADX to filter chop; intercepts non-Grade-A patterns if low momentum. |
-| `C_RetracementDetector.mqh` | Identifies Fib 38.2/50/61.8 overlaps with `CPatternResult` entry points. |
-| `C_AlignmentScorer.mqh` | Generates 0-100 score validating `CPatternResult` confidence. |
-| `CStateMachine.mqh` | Derives `ENUM_MARKET_STATE`; exposes `SMarketState` to Gate 5. |
+### Tasks
+- Update `CRiskManager` - Dynamic SL (structure-based), TP1/TP2 calculations, lot scaling based on confluence grade.
+- Update `CTradeExecutor` - Implement `ClosePartial()` with broker volume safety limits (`SYMBOL_VOLUME_MIN/STEP`).
 
 ### Acceptance Criteria
-- Market state correctly identified in MT5 backtest visual mode.
-- ADX chop filter blocks trades when ADX < 20.
-- Alignment score >= 70 required before Gate 5 passes.
+- Stop Loss is correctly calculated as the distance to the structural node.
+- Partial closures execute successfully in MT5 strategy tester without volume limit errors.
 
 ---
 
-## Sprint 4 — The Trigger (Execution)
-**Goal:** Execute trades safely. Manage open positions. Enforce all 7 gates.
+## Sprint 4: Entry Models & Trade Management
+**Goal**: Build the setups, grading, and post-entry monitoring logic.
 
-### Files
-| File | Responsibility |
-|------|---------------|
-| `CDecisionTree.mqh` | All 7 gates; rejection logging; calls `PlaceTrade()` |
-| `CRiskManager.mqh` | Lot sizing; daily DD; total DD; consecutive loss factor |
-| `CTradeExecutor.mqh` | CTrade buy/sell; trailing stop; `OnTradeTransaction` handler |
-| `CCorrelationFilter.mqh` | Check open positions for correlated instruments |
+### Tasks
+- Build `ConfluenceGrader` - Logic to score setups A+, A, B, C based on 3-layer overlap.
+- Scaffold `CTradeSetupManager` - Implements the 3 Entry Models (Pullback, Breakout, Trend Reversal).
+- Scaffold `CActiveTradeManager` - Implement the 3-Tier monitor (`CheckHealthH1`, `CheckMicroM15`, `CheckMacroH4`) and the time decay logic.
 
 ### Acceptance Criteria
-- Full 12-month backtest on VIX75 completes: **0 runtime errors**.
-- Maximum drawdown <= 6% across all tested periods.
-- All 7 gate decisions logged in MT5 Journal tab.
-- Lot size correctly scales with account balance and stop distance.
+- Grades correctly assigned based on the Venn Diagram overlap.
+- Post-entry monitor successfully tightens SL or closes trades based on momentum failure.
+
+---
+
+## Sprint 5: Final Integration & Review
+**Goal**: Bring it all together in the main EA file.
+
+### Tasks
+- Update `Lula_V2.mq5` - Wire up the new classes into the main `OnTick()` loop based on bar-close execution.
+- System-wide review and backtest validation.
+
+### Acceptance Criteria
+- Full compile with 0 errors/warnings.
+- Backtest confirms Trend Structure entries and active exits.

@@ -4,7 +4,15 @@
 
 ## THE MASTER TRADING FRAMEWORK
 ### Built on The Candlestick Trading Bible
-#### Version 1.0 — Final
+#### Version 2.0 — Trend Structure Upgrade
+
+> **V2 ARCHITECTURAL SHIFT NOTICE:**
+> The framework has evolved from V1 (Static Zone Reversal) to V2 (Trend Structure Trading). 
+> Key V2 upgrades include:
+> 1. **ZigZag defines Trend:** Market structure (HH/HL) is mathematically defined by ZigZag nodes, replacing lagging moving averages.
+> 2. **3-Layer Confluence:** Entries require alignment of ZigZag Structure + Static Zones + Dynamic KAMA.
+> 3. **Active Monitoring:** 3-Tier bar-close monitor replaces the V1 fire-and-forget mechanism.
+> 4. **Structure-based SL:** Stops are placed behind the structural node (HL/LH), not via arbitrary ATR buffers.
 
 ---
 
@@ -787,12 +795,13 @@ Target opposite boundary
 ║               RSI (divergence only)   Trend exhaustion       ║
 ║               ATR(14)                 Volatility baseline    ║
 ╠══════════════════════════════════════════════════════════════╣
-║  4H           KAMA (8 + 21)           Dynamic S/R            ║
+║  4H           ZigZag                  Trend Structure (Nodes)║
+║               KAMA (8 + 21)           Dynamic S/R            ║
 ║               Bollinger Bands         Range confirmation      ║
 ║               Fibonacci               Entry zone precision   ║
 ║               ATR(14)                 Stop calibration       ║
 ╠══════════════════════════════════════════════════════════════╣
-║  1H           KAMA                    Structure direction    ║
+║  1H           ZigZag / KAMA           Structure & Momentum   ║
 ║               ATR(14)                 Live volatility check  ║
 ╠══════════════════════════════════════════════════════════════╣
 ║  5M / 15M     ATR(14)                 Position sizing only   ║

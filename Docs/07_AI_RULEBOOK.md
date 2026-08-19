@@ -1,4 +1,4 @@
-# 07 — AI Rulebook: Agent Constraints
+# 07 — AI Rulebook: Agent Constraints (V2)
 
 ## Purpose
 This document governs every AI agent session working on this codebase.
@@ -22,10 +22,10 @@ Non-compliance with these rules requires a rewrite before continuing.
 Every numeric literal must be a named constant in `Defines.mqh` or an EA input parameter.
 ```mql5
 // WRONG
-if(adxValue < 20) ...
+if(zigZagVal == 0) ...
 
 // CORRECT
-if(adxValue < ADX_CHOPPY_THRESHOLD) ...  // defined in Defines.mqh
+if(zigZagVal == EMPTY_VALUE) ...  // defined in Defines.mqh or native
 ```
 
 ### Rule 2: No Placeholder Stubs in Active Sprints
@@ -38,7 +38,7 @@ except constants defined in `Defines.mqh`.
 
 ### Rule 4: All Handles Validated
 ```mql5
-m_handle = iATR(_Symbol, PERIOD_H4, 14);
+m_handle = iCustom(_Symbol, PERIOD_H4, "Examples\\ZigZag", 12, 5, 3);
 if(m_handle == INVALID_HANDLE) {
     PrintFormat("[ERROR] %s: Handle creation failed", __FUNCTION__);
     return false;
@@ -67,11 +67,11 @@ if(CopyBuffer(m_handle, 0, 1, 1, buf) < 1) return;  // retry next bar
 ## Testing Rules
 1. Every sprint MUST include at least one `Print()`-based unit test logged to Journal.
 2. No sprint is marked complete until MetaEditor shows: **0 errors, 0 warnings**.
-3. Backtests must be run in MT5 Strategy Tester before Sprint 4 is marked complete.
+3. Backtests must be run in MT5 Strategy Tester before Sprint 5 is marked complete.
 
 ---
 
-## NEW RULE: The Implementation Contract Workflow
+## The Implementation Contract Workflow
 
 > **You (the AI Agent) are strictly FORBIDDEN from writing unprompted feature code.**
 > No code may be written for any feature until its `Docs/Plans/` contract file has been read and acknowledged.
@@ -97,7 +97,7 @@ Merge to develop
 
 1. **Plan:** When assigned a feature, ask: *"Please confirm which `Docs/Plans/` file I should read."* Do not write a single line of code until you have read and quoted the Plan's Objective.
 
-2. **Branch:** Before coding, state the exact branch name: *"I am working on `feature/sprint1-engine3-weekly-macro`."*
+2. **Branch:** Before coding, state the exact branch name: *"I am working on `feature/v2-trend-structure`."*
 
 3. **Execute:** Write code that implements **only** what the Plan specifies. Nothing more. Nothing outside the Plan's defined Scope.
 
@@ -105,15 +105,9 @@ Merge to develop
 
 5. **Review:** Fill out `Docs/12_PR_TEMPLATE.md` with every checkbox ticked. Present it to prove the Definition of Done (`Docs/11_DEFINITION_OF_DONE.md`) has been met.
 
-### What This Prevents
-- Context window drift (AI forgets constraints mid-session).
-- Scope creep (AI modifies files outside the current feature).
-- Architectural violations (AI ignores SOLID / naming conventions).
-- Unverified merges (no code goes to `develop` without a completed PR checklist).
-
 ### Example Trigger Prompt (use this exact format)
 ```
-"Read HANDOVER.md. We are starting Sprint 1.
-Please read Docs/Plans/sprint1-engine3-weekly-macro.md
-and implement WeeklyMacro() inside CEngine3_WeeklyMacro."
+"Read HANDOVER.md. We are starting Sprint 2.
+Please read Docs/Plans/v2-architecture-spec.md
+and implement CTrendStructure logic."
 ```

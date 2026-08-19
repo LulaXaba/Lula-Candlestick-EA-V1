@@ -1,4 +1,4 @@
-## Pull Request — Lula Price Action Engine V1.0
+## Pull Request — Lula Price Action Engine V2.0
 
 ---
 
@@ -6,7 +6,7 @@
 <!-- Link to the Plans/ file this PR implements -->
 - **Plan File:** `Docs/Plans/[filename].md`
 - **Sprint:** Sprint [N] — [Sprint Name]
-- **Branch:** `feature/sprint[N]-[feature-name]`
+- **Branch:** `feature/[feature-name]`
 
 ## Purpose
 <!-- One sentence: what does this feature do and why does it exist? -->
@@ -26,20 +26,18 @@
 - [ ] Compiles with **0 warnings** in MetaEditor 5.
 
 ### Code Quality
-- [ ] Conforms strictly to `Docs/Plans/[filename].md` scope — nothing added, nothing omitted.
+- [ ] Conforms strictly to `Docs/Plans/[filename].md` scope.
 - [ ] **No magic numbers.** All numeric constants are in `Include/Defines.mqh`.
-- [ ] Adheres to `Docs/03_CODING_STANDARDS.md` naming conventions.
 - [ ] Follows SOLID principles per `Docs/02_ARCHITECTURE.md`.
 
 ### Performance & Safety
 - [ ] No `CopyBuffer()` or indicator reads inside `OnTick()`.
 - [ ] All indicator handles validated against `INVALID_HANDLE`.
 - [ ] Missing data / insufficient history handled safely (log + return, no crash).
-- [ ] Error messages use `PrintFormat("[ERROR] %s: ...", __FUNCTION__)` format.
 
 ### Testing
 - [ ] Unit test `Print()` added — output verified in MetaTrader Journal tab.
-- [ ] Edge case tested: missing history / zero ATR / invalid handle.
+- [ ] Edge case tested: missing history / invalid handle.
 
 ### Documentation & Git
 - [ ] `CHANGELOG.md` updated.

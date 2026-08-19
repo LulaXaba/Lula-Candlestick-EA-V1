@@ -1,4 +1,5 @@
-# Git Workflow & Branching Strategy
+# 10 — Git Workflow & Branching Strategy
+
 > **Read this before creating any branch or writing any commit message.**
 
 ---
@@ -8,18 +9,16 @@
 ```
 main
 │  Production-ready, live-account safe code only.
-│  Never commit directly here. Merge via PR from develop only.
 │
 └─ develop
    │  Integration branch. All completed sprint features merge here.
-   │  Must compile with 0 errors before anything merges to main.
    │
-   ├─ feature/sprint1-sensor-engine
-   ├─ feature/sprint2-pinbar-logic
-   ├─ feature/sprint3-choppy-filter
-   ├─ feature/sprint4-risk-calc
+   ├─ feature/v2-architecture-docs
+   ├─ feature/v2-trend-structure
+   ├─ feature/v2-risk-manager
+   ├─ feature/v2-trade-monitor
    │
-   ├─ bugfix/vix75-spread-math
+   ├─ bugfix/zigzag-node-read
    └─ hotfix/order-send-crash
 ```
 
@@ -30,32 +29,21 @@ main
 ### Feature Branches
 Must map directly to our sprint tasks:
 ```
-feature/sprint1-engine3-weekly-macro
-feature/sprint1-engine1-supply-demand
-feature/sprint1-engine2-standard-sr
-feature/sprint1-engine4-role-reversal
-feature/sprint2-pinbar-detector
-feature/sprint2-engulfing-detector
-feature/sprint2-false-breakout-detector
-feature/sprint3-state-machine
-feature/sprint4-decision-tree
-feature/sprint4-risk-manager
-feature/sprint4-trade-executor
+feature/v2-architecture-docs
+feature/v2-trend-structure
+feature/v2-kama-dynamic-sr
+feature/v2-risk-manager
+feature/v2-trade-executor
+feature/v2-confluence-grader
+feature/v2-trade-setup-manager
+feature/v2-active-trade-manager
 ```
 
 ### Bugfix Branches
 Non-critical fixes found during development:
 ```
-bugfix/vix75-spread-math
+bugfix/zigzag-node-read
 bugfix/lot-calculation-clamp
-bugfix/atr-handle-invalid
-```
-
-### Hotfix Branches
-Emergency fixes to production (`main`) only:
-```
-hotfix/order-send-crash
-hotfix/drawdown-halt-bypass
 ```
 
 ### Forbidden Branch Names
@@ -70,39 +58,24 @@ These names become meaningless after weeks. Always use the format above.
 
 | Prefix | Use For | Example |
 |--------|---------|---------|
-| `feat:` | New feature | `feat: implement Engine 3 WeeklyMacro 26-bar scan` |
-| `fix:` | Bug fix | `fix: correct ATR 800 threshold gate logic` |
-| `refactor:` | Restructure without behaviour change | `refactor: extract zone rank logic to CPriceZone` |
-| `test:` | Add or update tests | `test: add Engine 3 output validation print test` |
-| `docs:` | Documentation only | `docs: update HANDOVER.md for sprint 2 start` |
-| `chore:` | Maintenance | `chore: update .gitignore for .ex5 artifacts` |
-
-### Examples — Good vs Bad
-```
-# BAD — never do this
-fixed stuff
-update
-changes
-wip
-
-# GOOD
-feat: implement CSensorArray.SupplyDemand() base candle scan
-fix: correct false breakout body-not-wick boundary check
-refactor: move rollover window check to CSensorArray::Update()
-```
+| `feat:` | New feature | `feat: implement CTrendStructure node reader` |
+| `fix:` | Bug fix | `fix: correct zigzag buffer EMPTY_VALUE check` |
+| `refactor:` | Restructure | `refactor: extract zone rank logic` |
+| `test:` | Tests | `test: add CTrendStructure output validation test` |
+| `docs:` | Documentation | `docs: update HANDOVER.md for Sprint 2` |
+| `chore:` | Maintenance | `chore: update .gitignore` |
 
 ---
 
 ## Pull Request Workflow
 
-1. Create feature branch from `develop`: `git checkout -b feature/sprint1-engine3-weekly-macro develop`
+1. Create feature branch from `develop`: `git checkout -b feature/v2-trend-structure develop`
 2. Implement the feature per its `Docs/Plans/` Implementation Contract.
 3. Verify: MetaEditor compiles with **0 errors, 0 warnings**.
 4. Fill out `Docs/12_PR_TEMPLATE.md` checklist.
-5. Commit: `git commit -m "feat: implement Engine 3 WeeklyMacro 26-bar scan"`
+5. Commit: `git commit -m "feat: implement CTrendStructure node reader"`
 6. Merge to `develop`: `git checkout develop` → `git merge --no-ff feature/...`
-7. Tag sprint completion: `git tag -a v0.x.0-sprintN-complete -m "Sprint N complete"`
-8. Delete feature branch: `git branch -d feature/...`
+7. Delete feature branch: `git branch -d feature/...`
 
 ---
 

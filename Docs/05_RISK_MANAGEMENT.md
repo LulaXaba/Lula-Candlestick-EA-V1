@@ -1,48 +1,53 @@
-# 05 — Risk Management: Drawdown Limits & ATR Stop Multipliers
+# 05 — Risk Management: Structure-Based Risk (V2)
 
 ## Core Risk Parameters (EA Inputs)
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `inp_RiskPercent` | 1.0 | % of account balance risked per trade (1% Beginners, 2% Advanced, 0.5% VIX75) |
-| `inp_MaxDailyDrawdown` | 0.0 | % max daily drawdown (Note: Framework uses 2 consecutive losses rule instead) |
+| `inp_RiskPercent` | 1.0 | % of account balance risked per trade |
+| `inp_MaxDailyDrawdown` | 4.0 | % max daily drawdown |
 | `inp_MaxTotalDrawdown` | 6.0 | % max total session drawdown before halt |
-| `inp_ATR_StopMultiplier` | 1.5 | ATR multiplier for stop loss distance |
-| `inp_MinRR` | 2.0 | Minimum acceptable Risk:Reward ratio |
+| `inp_Min_H4_ATR` | 800.0 | Minimum H4 ATR for VIX75 (0.0020 for Forex) |
 
-## Position Sizing Formula
+## V2 Position Sizing Formula (Structure-Based)
+Unlike V1, which used fixed ATR multipliers for the Stop Loss, V2 uses the exact distance to the structural invalidation point (HL/LH).
+
 ```mql5
-RiskAmount     = AccountBalance * (inp_RiskPercent / 100)
-StopDistPoints = ATR(14)_Current * inp_ATR_StopMultiplier / Point
-LotSize        = RiskAmount / (StopDistPoints * TickValue)
-LotSize        = Clamp(LotSize, SYMBOL_VOLUME_MIN, SYMBOL_VOLUME_MAX)
-LotSize        = Round(LotSize / SYMBOL_VOLUME_STEP) * SYMBOL_VOLUME_STEP
-LotSize        = NormalizeDouble(LotSize, 2)
+// 1. Define hard stop based on structure
+StopPrice = (Direction == LONG) ? ZigZag_HigherLow : ZigZag_LowerHigh;
+StopDistPoints = MathAbs(EntryPrice - StopPrice) / Point;
+
+// 2. Adjust lot size based on Confluence Grade
+ConfluenceMultiplier = GetConfluenceMultiplier(Grade); // 1.0 for A+, 0.75 for B, 0.50 for C
+
+// 3. Calculate Risk
+RiskAmount = AccountBalance * (inp_RiskPercent / 100) * ConfluenceMultiplier;
+
+// 4. Calculate Final Lot Size
+LotSize = RiskAmount / (StopDistPoints * TickValue);
+LotSize = Clamp(LotSize, SYMBOL_VOLUME_MIN, SYMBOL_VOLUME_MAX);
+LotSize = Round(LotSize / SYMBOL_VOLUME_STEP) * SYMBOL_VOLUME_STEP;
 ```
-Never hardcode tick value or lot step — always fetch from `SymbolInfoDouble()`.
 
-## Drawdown Guards (enforced in CRiskManager)
+## Targets & Partial Exits
+- **TP1 (Structural Test)**: The previous Swing High/Low. 
+- **TP2 (Extension)**: Fibonacci 1.272 or 1.618 extension of the pullback leg.
 
-### Daily Drawdown Check (Consecutive Loss Rule)
-- Maximum 2 consecutive losing trades per session.
-- Track consecutive losses across the daily session.
-- If consecutive losses >= 2 → close all trades, set HALT flag for the day, resume next session.
+**Partial Exit Safety (MQL5 Limits)**:
+When price reaches TP1, the EA closes 50% of the position and moves SL to breakeven. 
+However, it must respect `SYMBOL_VOLUME_MIN`:
+```cpp
+double target_close = current_volume / 2.0;
+target_close = MathRound(target_close / lot_step) * lot_step;
 
-### Total Session Drawdown Check
-- Captured at `OnInit()`: `m_sessionStartEquity`.
-- If `totalLoss% >= inp_MaxTotalDrawdown` → close all trades, halt for session.
+if(target_close >= min_volume) {
+    PositionClosePartial(ticket, target_close);
+} else {
+    // Volume too small to split — bypass partial and move SL to BE instead
+    MoveSLToBreakeven(ticket);
+}
+```
 
-### Margin Level Guard
-- If `ACCOUNT_MARGIN_LEVEL < 200%` → Gate 7 returns false (no new trades).
-
-### Consecutive Loss Protection
-- After `MAX_CONSECUTIVE_LOSSES` (default: 3) losses in a row:
-  → Reduce lot size by `LOT_REDUCTION_FACTOR` (50%) for next trade cycle.
-  → Reset counter when a winning trade closes.
-
-## ATR Stop Multiplier Logic
-| Market Condition | Multiplier |
-|-----------------|-----------|
-| Normal | `ATR_MULTIPLIER_NORMAL` = 1.5x |
-| High Volatility Mode (weekly ATR > 2x avg) | `ATR_MULTIPLIER_HIGH_VOL` = 2.0x |
-
-**Absolute minimum stop:** `MIN_SL_POINTS` = 10 points beyond wick extreme.
+## Drawdown Guards (Maintained from V1)
+- **Consecutive Loss Rule**: Max 2 consecutive losses per session → Halt trading for the day.
+- **Margin Level Guard**: No trades if Margin Level < 200%.
+- **Consecutive Loss Protection**: After 3 consecutive losses, reduce risk by 50% until the next win.
