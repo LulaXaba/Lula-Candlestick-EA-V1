@@ -37,8 +37,16 @@ enum ENUM_ZONE_TYPE
 };
 
 //+------------------------------------------------------------------+
-//| Market State (output of CStateMachine)                           |
+//| Market State & Trend State (V2)                                  |
 //+------------------------------------------------------------------+
+enum ENUM_TREND_STATE
+{
+   TREND_RANGE      = 0,
+   TREND_UPTREND    = 1,
+   TREND_DOWNTREND  = 2,
+   TREND_TRANSITION = 3
+};
+
 enum ENUM_MARKET_STATE
 {
    STATE_UNDEFINED     = 0,
@@ -81,6 +89,18 @@ enum ENUM_TRADE_DIRECTION
    DIRECTION_NONE  = 0,
    DIRECTION_LONG  = 1,
    DIRECTION_SHORT = 2
+};
+
+//+------------------------------------------------------------------+
+//| Confluence Grade (V2)                                             |
+//+------------------------------------------------------------------+
+enum ENUM_CONFLUENCE_GRADE
+{
+   GRADE_REJECT   = 0,
+   GRADE_C        = 1,
+   GRADE_B        = 2,
+   GRADE_A        = 3,
+   GRADE_A_PLUS   = 4
 };
 
 //+------------------------------------------------------------------+
@@ -165,10 +185,19 @@ enum ENUM_EXECUTION_STATE
 #define KAMA_CONFLUENCE_VARIANCE_FOREX    5.0
 
 //+------------------------------------------------------------------+
-//| Fibonacci Retracement Levels                                      |
+//| Fibonacci Retracement & Extension Levels                          |
 //+------------------------------------------------------------------+
 #define FIBO_382    0.382   // 38.2% retracement
 #define FIBO_500    0.500   // 50.0% retracement
 #define FIBO_618    0.618   // 61.8% retracement (golden ratio — primary target)
+#define FIBO_1272   1.272   // 127.2% extension (TP2)
+#define FIBO_1618   1.618   // 161.8% extension (TP2)
+
+//+------------------------------------------------------------------+
+//| ZigZag Parameters (V2)                                            |
+//+------------------------------------------------------------------+
+#define ZIGZAG_DEPTH        12
+#define ZIGZAG_DEVIATION    5
+#define ZIGZAG_BACKSTEP     3
 
 #endif // DEFINES_MQH

@@ -64,26 +64,30 @@ struct SSensorData
 //+------------------------------------------------------------------+
 struct SPatternResult
 {
-   ENUM_PATTERN_TYPE    patternType;
-   ENUM_TRADE_DIRECTION direction;
-   int                  confidenceScore;  // 0-100
-   bool                 isGradeA;         // true if Engulfing body >= ENGULFING_GRADE_A_RATIO x prev body
-                                          // Grade A = triggers 1H Override Clause (Gate 5 bypass)
-   double               entryPrice;
-   double               stopLoss;
-   double               takeProfit;
-   double               rrRatio;          // Calculated R:R
+   ENUM_PATTERN_TYPE     patternType;
+   ENUM_TRADE_DIRECTION  direction;
+   ENUM_CONFLUENCE_GRADE confluenceGrade; // A+, A, B, C
+   int                   confidenceScore; // 0-100
+   bool                  isGradeA;        // triggers 1H Override Clause
+   
+   double                entryPrice;
+   double                stopLoss;
+   double                takeProfit1;
+   double                takeProfit2;
+   double                rrRatio;         // Calculated R:R
    datetime             barTime;
 
    //--- Constructor: zero-safe defaults
    SPatternResult() {
       patternType     = PATTERN_NONE;
       direction       = DIRECTION_NONE;
+      confluenceGrade = GRADE_REJECT;
       confidenceScore = 0;
       isGradeA        = false;
       entryPrice      = 0.0;
       stopLoss        = 0.0;
-      takeProfit      = 0.0;
+      takeProfit1     = 0.0;
+      takeProfit2     = 0.0;
       rrRatio         = 0.0;
       barTime         = 0;
    }
@@ -94,7 +98,7 @@ struct SPatternResult
               confidenceScore > 0 &&
               entryPrice > 0.0 &&
               stopLoss   > 0.0 &&
-              takeProfit > 0.0);
+              takeProfit1 > 0.0);
    }
 };
 
