@@ -12,28 +12,31 @@ class ConfluenceGrader
 public:
    static ENUM_CONFLUENCE_GRADE Grade(const SPatternResult &pattern, const SSensorData &context)
    {
-      int confluenceCount = 0;
+      // MANDATORY GATE 0: Trend must match trade direction
+      if(pattern.direction == DIRECTION_LONG && context.trendState != TREND_UPTREND)
+         return GRADE_REJECT;
+      if(pattern.direction == DIRECTION_SHORT && context.trendState != TREND_DOWNTREND)
+         return GRADE_REJECT;
+         
+      // Only THEN check confluence layers
+      bool hasZone = false;
+      if(pattern.direction == DIRECTION_LONG && context.isAtDemandZone) hasZone = true;
+      if(pattern.direction == DIRECTION_SHORT && context.isAtSupplyZone) hasZone = true;
       
-      // 1. Structure Check (Is it with the Trend?)
-      if(pattern.direction == DIRECTION_LONG && context.trendState == TREND_UPTREND) confluenceCount++;
-      if(pattern.direction == DIRECTION_SHORT && context.trendState == TREND_DOWNTREND) confluenceCount++;
-      
-      // 2. Zone Check (Is it at a major support/demand?)
-      if(pattern.direction == DIRECTION_LONG && context.isAtDemandZone) confluenceCount++;
-      if(pattern.direction == DIRECTION_SHORT && context.isAtSupplyZone) confluenceCount++;
-      
-      // 3. KAMA Check (Is entry near dynamic S/R?)
+      bool atKAMA = false;
       if(context.kama > 0)
       {
          double dist = MathAbs(pattern.entryPrice - context.kama);
-         // Dynamic variance threshold can be pulled from context.kamaVariance, simplified here:
-         if(dist < 50.0 * _Point) confluenceCount++;
+         if(dist < 50.0 * _Point) atKAMA = true;
       }
       
-      // Assign grade based on overlap
-      if(confluenceCount == 3) return GRADE_A_PLUS;
-      if(confluenceCount == 2) return GRADE_A;
-      if(confluenceCount == 1) return GRADE_B;
+      // Grade based on exact overlap
+      if(hasZone && atKAMA) return GRADE_A_PLUS;
+      if(hasZone && !atKAMA) return GRADE_A;
+      if(!hasZone && atKAMA) return GRADE_B;
+      
+      // If we only have ZigZag and no other confluence, we return GRADE_C per the spec
+      if(!hasZone && !atKAMA) return GRADE_C;
       
       return GRADE_REJECT;
    }

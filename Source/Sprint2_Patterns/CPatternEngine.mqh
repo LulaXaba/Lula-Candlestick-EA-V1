@@ -47,6 +47,7 @@ public:
 
    //--- Main Execution
    CPatternResult* ScanForPattern(CSensorArray* sensor);
+   SPatternResult  ScanForPatternH4();
 
    //--- Core Candlestick Math Utility
    static int           Cmp(double price1, double price2, double point_tolerance);
@@ -152,6 +153,14 @@ CPatternResult* CPatternEngine::ScanForPattern(CSensorArray* sensor)
      }
 
    return m_latest_result;
+  }
+
+SPatternResult CPatternEngine::ScanForPatternH4()
+  {
+   // TODO: Implement dedicated H4 pattern scanning with H4 sensor array.
+   // Currently returns an empty pattern (no veto).
+   SPatternResult empty;
+   return empty;
   }
 
 #endif

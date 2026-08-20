@@ -34,6 +34,12 @@ struct SSensorData
    ENUM_WEEKLY_BIAS weeklyBias;
    ENUM_WEEKLY_BIAS dailyBias;
    ENUM_WEEKLY_BIAS h4Bias;
+   
+   //--- Multi-Timeframe ZigZag Trend States
+   ENUM_TREND_STATE trendState; // Current TF (usually H4)
+   ENUM_TREND_STATE trendH4;
+   ENUM_TREND_STATE trendD1;
+   ENUM_TREND_STATE trendW1;
 
    //--- Volatility & Context
    double           weeklyATR;
@@ -53,6 +59,10 @@ struct SSensorData
       weeklyBias       = BIAS_UNDEFINED;
       dailyBias        = BIAS_UNDEFINED;
       h4Bias           = BIAS_UNDEFINED;
+      trendState       = TREND_RANGE;
+      trendH4          = TREND_RANGE;
+      trendD1          = TREND_RANGE;
+      trendW1          = TREND_RANGE;
       weeklyATR        = 0.0;
       isHighVolMode    = false;
       isRolloverWindow = false;
@@ -72,6 +82,7 @@ struct SPatternResult
    
    double                entryPrice;
    double                stopLoss;
+   double                structuralLevel; // V2: Store extreme (HL/LH) for exits
    double                takeProfit1;
    double                takeProfit2;
    double                rrRatio;         // Calculated R:R
@@ -86,6 +97,7 @@ struct SPatternResult
       isGradeA        = false;
       entryPrice      = 0.0;
       stopLoss        = 0.0;
+      structuralLevel = 0.0;
       takeProfit1     = 0.0;
       takeProfit2     = 0.0;
       rrRatio         = 0.0;

@@ -18,7 +18,9 @@ private:
    string            m_symbol;
    ENUM_TIMEFRAMES   m_tf;
    
-   CZigZagEngine*    m_zigzag;
+   CZigZagEngine*    m_zigzagH4;
+   CZigZagEngine*    m_zigzagD1;
+   CZigZagEngine*    m_zigzagW1;
    C_KAMAModule*     m_kama;
    // TODO: CPriceZone* or C_ATRModule* references here
    
@@ -37,13 +39,13 @@ public:
    ENUM_TREND_STATE  GetTrendState() const { return m_trendState; }
    
    // Direct accessors to the underlying engines
-   CZigZagEngine*    ZigZag() const { return m_zigzag; }
+   CZigZagEngine*    ZigZagH4() const { return m_zigzagH4; }
    C_KAMAModule*     KAMA()   const { return m_kama; }
 };
 
 //+------------------------------------------------------------------+
 CMarketContext::CMarketContext() : m_symbol(""), m_tf(PERIOD_CURRENT), 
-   m_zigzag(NULL), m_kama(NULL)
+   m_zigzagH4(NULL), m_zigzagD1(NULL), m_zigzagW1(NULL), m_kama(NULL)
 {
    ZeroMemory(m_data);
    m_trendState = TREND_RANGE;
@@ -60,10 +62,24 @@ bool CMarketContext::Init(string symbol, ENUM_TIMEFRAMES tf)
    m_symbol = symbol;
    m_tf = tf;
    
-   m_zigzag = new CZigZagEngine();
-   if(!m_zigzag.Init(m_symbol, m_tf, ZIGZAG_DEPTH))
+   m_zigzagH4 = new CZigZagEngine();
+   if(!m_zigzagH4.Init(m_symbol, PERIOD_H4, ZIGZAG_DEPTH))
    {
-      Print("[ERROR] CMarketContext failed to init ZigZag");
+      Print("[ERROR] CMarketContext failed to init ZigZag H4");
+      return false;
+   }
+   
+   m_zigzagD1 = new CZigZagEngine();
+   if(!m_zigzagD1.Init(m_symbol, PERIOD_D1, ZIGZAG_DEPTH))
+   {
+      Print("[ERROR] CMarketContext failed to init ZigZag D1");
+      return false;
+   }
+   
+   m_zigzagW1 = new CZigZagEngine();
+   if(!m_zigzagW1.Init(m_symbol, PERIOD_W1, ZIGZAG_DEPTH))
+   {
+      Print("[ERROR] CMarketContext failed to init ZigZag W1");
       return false;
    }
    
@@ -81,22 +97,32 @@ bool CMarketContext::Init(string symbol, ENUM_TIMEFRAMES tf)
 //+------------------------------------------------------------------+
 void CMarketContext::Deinit()
 {
-   if(m_zigzag != NULL) { delete m_zigzag; m_zigzag = NULL; }
-   if(m_kama != NULL)   { delete m_kama;   m_kama = NULL; }
+   if(m_zigzagH4 != NULL) { delete m_zigzagH4; m_zigzagH4 = NULL; }
+   if(m_zigzagD1 != NULL) { delete m_zigzagD1; m_zigzagD1 = NULL; }
+   if(m_zigzagW1 != NULL) { delete m_zigzagW1; m_zigzagW1 = NULL; }
+   if(m_kama != NULL)     { delete m_kama;     m_kama = NULL; }
 }
 
 //+------------------------------------------------------------------+
 void CMarketContext::Update()
 {
    // 1. Update engines
-   if(m_zigzag) m_zigzag.Update();
-   if(m_kama)   m_kama.Update();
+   if(m_zigzagH4) m_zigzagH4.Update();
+   if(m_zigzagD1) m_zigzagD1.Update();
+   if(m_zigzagW1) m_zigzagW1.Update();
+   if(m_kama)     m_kama.Update();
    
    // 2. Fetch structural state
-   if(m_zigzag) m_trendState = m_zigzag.GetTrendState();
+   if(m_zigzagH4) m_trendState = m_zigzagH4.GetTrendState();
    
    // 3. Populate SSensorData (to pass to Trade Evaluator)
    ZeroMemory(m_data);
+   
+   m_data.trendState = m_trendState;
+   if(m_zigzagH4) m_data.trendH4 = m_zigzagH4.GetTrendState();
+   if(m_zigzagD1) m_data.trendD1 = m_zigzagD1.GetTrendState();
+   if(m_zigzagW1) m_data.trendW1 = m_zigzagW1.GetTrendState();
+   
    if(m_kama)
    {
       m_data.kama = m_kama.GetKAMA();

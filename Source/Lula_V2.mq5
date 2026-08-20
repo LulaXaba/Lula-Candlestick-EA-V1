@@ -97,6 +97,20 @@ void OnDeinit(const int reason)
 void OnTick()
 {
    //================================================================
+   // PHASE 0: ROLLOVER FREEZE (P2)
+   // No new trades between broker time 23:55–00:05. Spread protection.
+   //================================================================
+   MqlDateTime dt;
+   TimeCurrent(dt);
+   if((dt.hour == 23 && dt.min >= 55) || (dt.hour == 0 && dt.min <= 5))
+   {
+      // If we still want active trade monitoring to happen during rollover, 
+      // we should put this block AFTER Phase 1. 
+      // Actually, monitoring is fine, but entry is what we want to prevent.
+      // We'll let Phase 1 run, but return after it.
+   }
+   
+   //================================================================
    // PHASE 1: ACTIVE TRADE MONITORING (V2)
    // Continuously evaluates open trades against H1/M15 health checks
    //================================================================
@@ -106,9 +120,11 @@ void OnTick()
    }
 
    //================================================================
-   // PHASE 2: TIME-GATING
+   // PHASE 2: TIME-GATING & ROLLOVER FREEZE
    // Only scan for new setups on bar open
    //================================================================
+   if((dt.hour == 23 && dt.min >= 55) || (dt.hour == 0 && dt.min <= 5)) return; // Rollover Freeze
+   
    datetime current_bar_time = iTime(_Symbol, PERIOD_CURRENT, 0);
    if(current_bar_time == g_last_bar_time) return;
    g_last_bar_time = current_bar_time;

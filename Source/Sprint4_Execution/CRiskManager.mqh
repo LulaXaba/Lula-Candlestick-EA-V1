@@ -33,6 +33,7 @@ public:
    double            CalculateLotSize(double entry_price, double stop_loss);
    double            CalculateStructureStopLoss(double entryPrice, ENUM_TRADE_DIRECTION dir, double structuralExtreme, double atrBuffer);
    double            CalculateFibTarget(double swingHigh, double swingLow, double fibLevel, ENUM_TRADE_DIRECTION dir);
+   double            CalculateAutoTP2(double swingHigh, double swingLow, ENUM_TRADE_DIRECTION dir, bool isStrongTrend);
    double            ApplyConfluenceLotMultiplier(double baseLot, ENUM_CONFLUENCE_GRADE grade);
   };
 
@@ -220,6 +221,15 @@ double CRiskManager::CalculateFibTarget(double swingHigh, double swingLow, doubl
       target = swingHigh - (swingRange * fibLevel);
    }
    return target;
+}
+
+//+------------------------------------------------------------------+
+//| V2: Auto TP2 Selection (P2)                                      |
+//+------------------------------------------------------------------+
+double CRiskManager::CalculateAutoTP2(double swingHigh, double swingLow, ENUM_TRADE_DIRECTION dir, bool isStrongTrend)
+{
+   double fibLevel = isStrongTrend ? 1.618 : 1.272;
+   return CalculateFibTarget(swingHigh, swingLow, fibLevel, dir);
 }
 
 //+------------------------------------------------------------------+
