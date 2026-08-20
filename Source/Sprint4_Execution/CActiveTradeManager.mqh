@@ -11,7 +11,7 @@
 #include "..\Sprint2_Patterns\CPatternEngine.mqh"
 
 extern CTradeExecutor* g_executor;
-extern CPatternEngine* g_patternEngine;
+extern CPatternEngine* g_patterns;
 
 class CActiveTradeManager
 {
@@ -151,16 +151,16 @@ private:
       if(currentH4 == lastH4Time) return;
       lastH4Time = currentH4;
       
-      if(!g_patternEngine) return;
+      if(!g_patterns) return;
       
       double sl;
       ENUM_TRADE_DIRECTION dir;
       if(!g_executor.GetStructuralLevel(ticket, sl, dir)) return;
       
-      // Assume g_patternEngine has a ScanForPatternH4 method or similar
+      // Assume g_patterns has a ScanForPatternH4 method or similar
       // If it doesn't compile we will need to adjust based on CPatternEngine interface
       // Since user provided: SPatternResult h4Pattern = m_patternEngine.ScanForPatternH4();
-      SPatternResult h4Pattern = g_patternEngine.ScanForPatternH4();
+      SPatternResult h4Pattern = g_patterns.ScanForPatternH4();
       
       if(h4Pattern.direction == DIRECTION_SHORT && dir == DIRECTION_LONG)
       {

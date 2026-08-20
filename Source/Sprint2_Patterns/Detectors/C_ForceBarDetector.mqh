@@ -81,7 +81,7 @@ bool C_ForceBarDetector::Detect(const int barIndex, CSensorArray* sensor, CPatte
 
    // 4. Determine Grade
    // An extreme displacement force bar bypasses 1H checks because the momentum is overwhelming
-   ENUM_PATTERN_GRADE grade = isExtremeDisplacement ? GRADE_A : GRADE_B;
+   ENUM_CONFLUENCE_GRADE grade = isExtremeDisplacement ? GRADE_A : GRADE_B;
    bool bypass_1h = isExtremeDisplacement;
 
    // 5. Populate DTO Output

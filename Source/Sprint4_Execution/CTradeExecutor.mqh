@@ -80,17 +80,17 @@ bool CTradeExecutor::ExecuteTrade(const SPatternResult &pattern, double lot_size
    if(pattern.direction == DIRECTION_LONG)
      {
       PrintFormat("[Trade Executor] Routing BUY Order: Lots=%.2f, Entry=%.5f, SL=%.5f, TP=%.5f", 
-                  lot_size, current_ask, pattern.stopLoss, pattern.takeProfit);
+                  lot_size, current_ask, pattern.stopLoss, pattern.takeProfit1);
                   
-      success = m_trade.Buy(lot_size, m_symbol, current_ask, pattern.stopLoss, pattern.takeProfit, "Lula V1 Long");
+      success = m_trade.Buy(lot_size, m_symbol, current_ask, pattern.stopLoss, pattern.takeProfit1, "Lula V1 Long");
      }
    //--- EXECUTE SHORT POSITION
    else if(pattern.direction == DIRECTION_SHORT)
      {
       PrintFormat("[Trade Executor] Routing SELL Order: Lots=%.2f, Entry=%.5f, SL=%.5f, TP=%.5f", 
-                  lot_size, current_bid, pattern.stopLoss, pattern.takeProfit);
+                  lot_size, current_bid, pattern.stopLoss, pattern.takeProfit1);
                   
-      success = m_trade.Sell(lot_size, m_symbol, current_bid, pattern.stopLoss, pattern.takeProfit, "Lula V1 Short");
+      success = m_trade.Sell(lot_size, m_symbol, current_bid, pattern.stopLoss, pattern.takeProfit1, "Lula V1 Short");
      }
 
    //--- ERROR HANDLING

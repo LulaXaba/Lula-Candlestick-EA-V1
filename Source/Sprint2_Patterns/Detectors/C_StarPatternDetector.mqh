@@ -107,7 +107,7 @@ bool C_StarPatternDetector::Detect(const int barIndex, CSensorArray* sensor, CPa
    // 4. Determine Grade (If the confirmation bar is massive, promote to Grade A)
    double range1 = MathAbs(high1 - low1);
    bool bypass_1h = (range1 >= (1.5 * atr));
-   ENUM_PATTERN_GRADE grade = bypass_1h ? GRADE_A : GRADE_B;
+   ENUM_CONFLUENCE_GRADE grade = bypass_1h ? GRADE_A : GRADE_B;
 
    // 5. Populate DTO Output
    ENUM_TRADE_DIRECTION dir = isMorningStar ? DIRECTION_LONG : DIRECTION_SHORT;

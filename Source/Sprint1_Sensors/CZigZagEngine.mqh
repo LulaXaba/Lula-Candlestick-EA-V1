@@ -53,7 +53,7 @@ public:
    void     Update();       // Call every tick or on new bar
    
    //--- Accessors for V2 trend logic
-   bool     GetLast4Nodes(SZZNode &nodes[]);     // Returns last 4 pivots
+   bool     GetLast4Nodes(SZZNode &nodes[]) const;     // Returns last 4 pivots
    double   GetLastHigh() const;
    double   GetLastLow() const;
    double   GetPrevHigh() const;    // 2nd last high
@@ -62,7 +62,7 @@ public:
    datetime GetLastLowTime() const;
    
    //--- Trend state (the 4-node math)
-   ENUM_TREND_STATE GetTrendState();
+   ENUM_TREND_STATE GetTrendState() const;
    bool     IsHigherHigh() const;
    bool     IsHigherLow() const;
    bool     IsLowerHigh() const;
@@ -225,7 +225,7 @@ void CZigZagEngine::Update()
 //+------------------------------------------------------------------+
 //| Get the last 4 ZigZag nodes                                      |
 //+------------------------------------------------------------------+
-bool CZigZagEngine::GetLast4Nodes(SZZNode &nodes[])
+bool CZigZagEngine::GetLast4Nodes(SZZNode &nodes[]) const
 {
    ArrayResize(nodes, 4);
    int found = 0;
@@ -256,7 +256,7 @@ bool CZigZagEngine::GetLast4Nodes(SZZNode &nodes[])
 //+------------------------------------------------------------------+
 //| Determine the current structural trend state                       |
 //+------------------------------------------------------------------+
-ENUM_TREND_STATE CZigZagEngine::GetTrendState()
+ENUM_TREND_STATE CZigZagEngine::GetTrendState() const
 {
    SZZNode nodes[];
    if(!GetLast4Nodes(nodes)) return TREND_RANGE;

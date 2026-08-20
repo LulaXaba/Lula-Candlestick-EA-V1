@@ -64,7 +64,7 @@ bool C_EngulfingDetector::Detect(const int barIndex, CSensorArray* sensor, CPatt
    if(!isBullishEngulfing && !isBearishEngulfing) return false;
 
    // 2. Determine Pattern Grade (Grade A = Body >= 1.5x previous body)
-   ENUM_PATTERN_GRADE grade = GRADE_B;
+   ENUM_CONFLUENCE_GRADE grade = GRADE_B;
    bool bypass_1h = false;
    
    if(body1 >= (body2 * ENGULFING_GRADE_A_RATIO))
