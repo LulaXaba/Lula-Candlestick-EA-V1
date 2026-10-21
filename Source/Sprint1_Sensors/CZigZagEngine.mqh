@@ -259,24 +259,33 @@ bool CZigZagEngine::GetLast4Nodes(SZZNode &nodes[]) const
 ENUM_TREND_STATE CZigZagEngine::GetTrendState() const
 {
    SZZNode nodes[];
-   if(!GetLast4Nodes(nodes)) return TREND_RANGE;
+   if(!GetLast4Nodes(nodes))
+   {
+      PrintFormat("[ZZ DEBUG %s] GetTrendState: NOT ENOUGH NODES", m_symbol);
+      return TREND_RANGE;
+   }
    
+   PrintFormat("[ZZ DEBUG %s] Nodes: H=%.2f L=%.2f H=%.2f L=%.2f", m_symbol,
+               nodes[3].price, nodes[2].price, nodes[1].price, nodes[0].price);
+   
+   ENUM_TREND_STATE result = TREND_RANGE;
    // Needs to evaluate sequence: HL/HH or LH/LL
    // nodes[0] is most recent. If nodes[0] is High, nodes[1] is Low, nodes[2] is High, nodes[3] is Low
    if(nodes[0].isHigh)
    {
       // nodes[0]=HH, nodes[1]=HL, nodes[2]=LH, nodes[3]=LL
       if(nodes[0].price > nodes[2].price && nodes[1].price > nodes[3].price)
-         return TREND_UPTREND;
+         result = TREND_UPTREND;
    }
    else
    {
       // nodes[0]=LL, nodes[1]=LH, nodes[2]=HL, nodes[3]=HH
       if(nodes[0].price < nodes[2].price && nodes[1].price < nodes[3].price)
-         return TREND_DOWNTREND;
+         result = TREND_DOWNTREND;
    }
    
-   return TREND_RANGE;
+   PrintFormat("[ZZ DEBUG %s] TrendState: %s", m_symbol, EnumToString(result));
+   return result;
 }
 
 //+------------------------------------------------------------------+
@@ -318,13 +327,56 @@ bool CZigZagEngine::IsHigherLow() const  { return GetLastLow() > GetPrevLow(); }
 bool CZigZagEngine::IsLowerHigh() const  { return GetLastHigh() < GetPrevHigh(); }
 bool CZigZagEngine::IsLowerLow() const   { return GetLastLow() < GetPrevLow(); }
 
-bool CZigZagEngine::IsPullbackToHL(double currentPrice, double variance) const {
-   if(GetTrendState() != TREND_UPTREND) return false;
-   return (MathAbs(currentPrice - GetLastLow()) <= variance);
+bool CZigZagEngine::IsPullbackToHL(double currentPrice, double variance) const
+{
+   SZZNode nodes[];
+   if(!GetLast4Nodes(nodes))
+   {
+      PrintFormat("[ZZ DEBUG %s] IsPullbackToHL: No nodes", m_symbol);
+      return false;
+   }
+   
+   if(nodes[0].isHigh)
+   {
+      PrintFormat("[ZZ DEBUG %s] IsPullbackToHL: Last node is HIGH (%.2f), need LOW", 
+                  m_symbol, nodes[0].price);
+      return false;
+   }
+   
+   double distance = MathAbs(currentPrice - nodes[0].price);
+   bool result = (distance <= variance);
+   
+   PrintFormat("[ZZ DEBUG %s] HL=%.2f Price=%.2f Dist=%.2f Var=%.2f -> %s",
+               m_symbol, nodes[0].price, currentPrice, distance, variance,
+               result ? "TRUE" : "FALSE");
+   
+   return result;
 }
-bool CZigZagEngine::IsPullbackToLH(double currentPrice, double variance) const {
-   if(GetTrendState() != TREND_DOWNTREND) return false;
-   return (MathAbs(currentPrice - GetLastHigh()) <= variance);
+
+bool CZigZagEngine::IsPullbackToLH(double currentPrice, double variance) const
+{
+   SZZNode nodes[];
+   if(!GetLast4Nodes(nodes))
+   {
+      PrintFormat("[ZZ DEBUG %s] IsPullbackToLH: No nodes", m_symbol);
+      return false;
+   }
+   
+   if(!nodes[0].isHigh)
+   {
+      PrintFormat("[ZZ DEBUG %s] IsPullbackToLH: Last node is LOW (%.2f), need HIGH", 
+                  m_symbol, nodes[0].price);
+      return false;
+   }
+   
+   double distance = MathAbs(currentPrice - nodes[0].price);
+   bool result = (distance <= variance);
+   
+   PrintFormat("[ZZ DEBUG %s] LH=%.2f Price=%.2f Dist=%.2f Var=%.2f -> %s",
+               m_symbol, nodes[0].price, currentPrice, distance, variance,
+               result ? "TRUE" : "FALSE");
+   
+   return result;
 }
 
 void CZigZagEngine::PrintNodes() const {

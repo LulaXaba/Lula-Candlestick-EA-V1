@@ -31,7 +31,7 @@ public:
    CMarketContext();
   ~CMarketContext();
 
-   bool              Init(string symbol, ENUM_TIMEFRAMES tf);
+   bool              Init(string symbol, ENUM_TIMEFRAMES tf, int depthH4 = 5000, int depthD1 = 10000, int depthW1 = 20000);
    void              Deinit();
    void              Update();
    
@@ -57,27 +57,27 @@ CMarketContext::~CMarketContext()
 }
 
 //+------------------------------------------------------------------+
-bool CMarketContext::Init(string symbol, ENUM_TIMEFRAMES tf)
+bool CMarketContext::Init(string symbol, ENUM_TIMEFRAMES tf, int depthH4, int depthD1, int depthW1)
 {
    m_symbol = symbol;
    m_tf = tf;
    
    m_zigzagH4 = new CZigZagEngine();
-   if(!m_zigzagH4.Init(m_symbol, PERIOD_H4, ZIGZAG_DEPTH))
+   if(!m_zigzagH4.Init(m_symbol, PERIOD_H4, depthH4))
    {
       Print("[ERROR] CMarketContext failed to init ZigZag H4");
       return false;
    }
    
    m_zigzagD1 = new CZigZagEngine();
-   if(!m_zigzagD1.Init(m_symbol, PERIOD_D1, ZIGZAG_DEPTH))
+   if(!m_zigzagD1.Init(m_symbol, PERIOD_D1, depthD1))
    {
       Print("[ERROR] CMarketContext failed to init ZigZag D1");
       return false;
    }
    
    m_zigzagW1 = new CZigZagEngine();
-   if(!m_zigzagW1.Init(m_symbol, PERIOD_W1, ZIGZAG_DEPTH))
+   if(!m_zigzagW1.Init(m_symbol, PERIOD_W1, depthW1))
    {
       Print("[ERROR] CMarketContext failed to init ZigZag W1");
       return false;

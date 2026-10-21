@@ -52,37 +52,45 @@ public:
    
    void EvaluateAndExecute(SPatternResult &pattern, const SSensorData &context)
    {
-      // P2: Full Alignment Gate
+      Print("[SETUP DEBUG] Scanning for setup...");
+      
+      // Gate 1: Alignment
       if(!IsFullAlignment(context, pattern.direction))
       {
-         Print("[Trade Setup] Rejecting: Multi-Timeframe ZigZag alignment failed (H4, D1, W1 do not agree).");
+         PrintFormat("[SETUP DEBUG] BLOCKED: IsFullAlignment() = false (H4=%s D1=%s W1=%s Dir=%s)",
+                     EnumToString(context.trendH4), EnumToString(context.trendD1), EnumToString(context.trendW1),
+                     EnumToString(pattern.direction));
          return;
       }
+      Print("[SETUP DEBUG] PASSED: Full alignment");
       
       // P2: Gap Open Rule
       double currentOpen = iOpen(Symbol(), PERIOD_H1, 0);
       double gapDistance = MathAbs(currentOpen - pattern.entryPrice) / _Point;
       if(context.atr_H1 > 0 && gapDistance > (context.atr_H1 * 0.5 / _Point))
       {
-         PrintFormat("[Trade Setup] Rejecting: Gap Open Rule. Open %f is too far from entry zone %f.", currentOpen, pattern.entryPrice);
+         PrintFormat("[SETUP DEBUG] BLOCKED: Gap Open Rule. Open %f is too far from entry zone %f.", currentOpen, pattern.entryPrice);
          return;
       }
+      
       // 0. Classify Entry Model
       ENUM_ENTRY_MODEL entryModel = ClassifySetup(pattern, context);
       if(entryModel == MODEL_NONE)
       {
-         Print("[Trade Setup] Rejecting: Could not classify entry model.");
+         Print("[SETUP DEBUG] BLOCKED: Could not classify entry model.");
          return;
       }
+      PrintFormat("[SETUP DEBUG] PASSED: Entry Model=%s", EnumToString(entryModel));
       
       // 1. Grade the confluence
       pattern.confluenceGrade = ConfluenceGrader::Grade(pattern, context);
       
       if(pattern.confluenceGrade == GRADE_REJECT) 
       {
-         PrintFormat("[Trade Setup] Setup rejected due to insufficient confluence.");
+         Print("[SETUP DEBUG] BLOCKED: Grade = REJECT");
          return;
       }
+      PrintFormat("[SETUP DEBUG] PASSED: Grade=%s", EnumToString(pattern.confluenceGrade));
       
       // 1.5 KAMA Momentum Veto (P1)
       if(context.kama > 0)
@@ -91,12 +99,12 @@ public:
          {
             if(pattern.entryPrice < context.kama - (10.0 * _Point))
             {
-               Print("[V2 VETO] Price well below KAMA. Rejecting long entry.");
+               Print("[SETUP DEBUG] BLOCKED: Price well below KAMA.");
                return;
             }
             else
             {
-               Print("[V2 VETO] Price crossed below KAMA. Reducing lot by 50%.");
+               Print("[SETUP DEBUG] WARNING: Price crossed below KAMA. Reducing lot by 50%.");
                pattern.confluenceGrade = GRADE_C;
             }
          }
@@ -104,12 +112,12 @@ public:
          {
             if(pattern.entryPrice > context.kama + (10.0 * _Point))
             {
-               Print("[V2 VETO] Price well above KAMA. Rejecting short entry.");
+               Print("[SETUP DEBUG] BLOCKED: Price well above KAMA.");
                return;
             }
             else
             {
-               Print("[V2 VETO] Price crossed above KAMA. Reducing lot by 50%.");
+               Print("[SETUP DEBUG] WARNING: Price crossed above KAMA. Reducing lot by 50%.");
                pattern.confluenceGrade = GRADE_C;
             }
          }
@@ -119,12 +127,15 @@ public:
       double baseLot = m_risk.CalculateLotSize(pattern.entryPrice, pattern.stopLoss);
       double finalLot = m_risk.ApplyConfluenceLotMultiplier(baseLot, pattern.confluenceGrade);
       
-      // 3. Execution
-      if(finalLot > 0) 
+      if(finalLot <= 0)
       {
-         PrintFormat("[Trade Setup] Executing Grade %d setup with %.2f lots.", pattern.confluenceGrade, finalLot);
-         m_executor.ExecuteTrade(pattern, finalLot);
+         PrintFormat("[SETUP DEBUG] BLOCKED: Final lot size <= 0 (base=%.2f)", baseLot);
+         return;
       }
+      
+      PrintFormat("[SETUP DEBUG] *** SETUP VALID *** Executing Grade %s setup with %.2f lots.", 
+                  EnumToString(pattern.confluenceGrade), finalLot);
+      m_executor.ExecuteTrade(pattern, finalLot);
    }
 };
 

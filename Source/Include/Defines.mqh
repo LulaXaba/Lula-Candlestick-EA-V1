@@ -196,7 +196,7 @@ enum ENUM_EXECUTION_STATE
 //+------------------------------------------------------------------+
 //| ZigZag Parameters (V2)                                            |
 //+------------------------------------------------------------------+
-#define ZIGZAG_DEPTH        12
+#define ZIGZAG_DEPTH        5000
 #define ZIGZAG_DEVIATION    5
 #define ZIGZAG_BACKSTEP     3
 

@@ -34,6 +34,12 @@ input group "=== 2. EXECUTION ==="
 input ulong  inp_MagicNumber      = 777777; 
 input ulong  inp_Slippage         = 10;     
 
+input group "=== 3. ZIGZAG & STRUCTURE ==="
+input int    inp_ZZ_Depth_H4      = 5000;   // ZigZag Depth H4 (points)
+input int    inp_ZZ_Depth_D1      = 10000;  // ZigZag Depth D1 (points)
+input int    inp_ZZ_Depth_W1      = 20000;  // ZigZag Depth W1 (points)
+input double inp_HL_Variance      = 500.0;  // Pullback Variance (points)
+
 //+------------------------------------------------------------------+
 //| GLOBAL SYSTEM POINTERS                                           |
 //+------------------------------------------------------------------+
@@ -64,7 +70,7 @@ int OnInit()
    g_activeMonitor = new CActiveTradeManager(_Symbol);
 
    //--- 3. Initialization
-   if(!g_context.Init(_Symbol, PERIOD_CURRENT)) return INIT_FAILED;
+   if(!g_context.Init(_Symbol, PERIOD_CURRENT, inp_ZZ_Depth_H4, inp_ZZ_Depth_D1, inp_ZZ_Depth_W1)) return INIT_FAILED;
    if(!g_patterns.Init(0.65, 70)) return INIT_FAILED; 
    if(!g_risk.Init(_Symbol, inp_RiskPerTradePct, inp_MaxDailyDDPct, inp_MaxTotalDDPct, inp_MinRRRatio)) return INIT_FAILED;
    if(!g_executor.Init(_Symbol, inp_MagicNumber, inp_Slippage)) return INIT_FAILED;
@@ -97,6 +103,50 @@ void OnDeinit(const int reason)
 void OnTick()
 {
    //================================================================
+   // TEMPORARY NUCLEAR TEST (Step 3)
+   // Remove this block after confirming execution works
+   //================================================================
+   static bool testFired = false;
+   if(!testFired && PositionsTotal() == 0)
+   {
+      testFired = true;
+      
+      CTrade test_trade;
+      test_trade.SetExpertMagicNumber(inp_MagicNumber);
+      test_trade.SetDeviationInPoints(inp_Slippage);
+      test_trade.SetTypeFilling(ORDER_FILLING_FOK);
+      
+      double lot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
+      double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+      double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+      double sl  = bid - 1000 * _Point;
+      double tp  = bid + 1000 * _Point;
+      
+      PrintFormat("[NUCLEAR TEST] Attempting BUY %.2f lots @ SL=%.2f TP=%.2f",
+                  lot, sl, tp);
+      
+      bool ok = test_trade.Buy(lot, _Symbol, ask, sl, tp, "NUCLEAR_TEST");
+      if(!ok && test_trade.ResultRetcode() == TRADE_RETCODE_INVALID_FILL)
+      {
+         test_trade.SetTypeFilling(ORDER_FILLING_IOC);
+         ok = test_trade.Buy(lot, _Symbol, ask, sl, tp, "NUCLEAR_TEST");
+      }
+      
+      if(!ok)
+      {
+         PrintFormat("[NUCLEAR TEST] FAILED: %d - %s",
+                     test_trade.ResultRetcode(),
+                     test_trade.ResultRetcodeDescription());
+      }
+      else
+      {
+         PrintFormat("[NUCLEAR TEST] SUCCESS: Ticket %I64u",
+                     test_trade.ResultOrder());
+      }
+   }
+   // === END NUCLEAR TEST ===
+
+   //================================================================
    // PHASE 0: ROLLOVER FREEZE (P2)
    // No new trades between broker time 23:55–00:05. Spread protection.
    //================================================================
@@ -104,10 +154,7 @@ void OnTick()
    TimeCurrent(dt);
    if((dt.hour == 23 && dt.min >= 55) || (dt.hour == 0 && dt.min <= 5))
    {
-      // If we still want active trade monitoring to happen during rollover, 
-      // we should put this block AFTER Phase 1. 
-      // Actually, monitoring is fine, but entry is what we want to prevent.
-      // We'll let Phase 1 run, but return after it.
+      // Rollover window
    }
    
    //================================================================
@@ -137,9 +184,37 @@ void OnTick()
    SSensorData contextData = g_context.GetData();
 
    //================================================================
-   // PHASE 4: PATTERN DETECTION
-   // Note: Pattern engine to be updated to accept SSensorData instead of V1 CSensorArray
+   // PHASE 4: PATTERN DETECTION & SETUP SCANNING
    //================================================================
+   Print("[SETUP DEBUG] Scanning for setup...");
+   
+   // Gate 1: Alignment check debug
+   if(contextData.trendH4 != contextData.trendD1 || contextData.trendH4 != contextData.trendW1)
+   {
+      PrintFormat("[SETUP DEBUG] BLOCKED: IsFullAlignment() = false (H4=%s D1=%s W1=%s)",
+                  EnumToString(contextData.trendH4), EnumToString(contextData.trendD1), EnumToString(contextData.trendW1));
+   }
+   else
+   {
+      Print("[SETUP DEBUG] PASSED: Full alignment");
+   }
+
+   // Gate 2: Pullback check debug
+   double checkPrice = iClose(_Symbol, PERIOD_CURRENT, 1);
+   if(g_context && g_context.ZigZagH4())
+   {
+      bool atHL = g_context.ZigZagH4().IsPullbackToHL(checkPrice, inp_HL_Variance);
+      bool atLH = g_context.ZigZagH4().IsPullbackToLH(checkPrice, inp_HL_Variance);
+      if(!atHL && !atLH)
+      {
+         Print("[SETUP DEBUG] BLOCKED: Not at HL/LH");
+      }
+      else
+      {
+         PrintFormat("[SETUP DEBUG] PASSED: At %s", atHL ? "HL" : "LH");
+      }
+   }
+
    SPatternResult pattern_dto; 
    // pattern_dto = g_patterns.Scan(contextData); 
 
@@ -147,8 +222,13 @@ void OnTick()
    // PHASE 5: EVALUATE & EXECUTE
    // CTradeSetupManager grades the confluence and routes to executor
    //================================================================
-   if(pattern_dto.IsValid())
+   if(!pattern_dto.IsValid())
    {
+      Print("[SETUP DEBUG] BLOCKED: No pattern");
+   }
+   else
+   {
+      PrintFormat("[SETUP DEBUG] PASSED: Pattern=%s", EnumToString(pattern_dto.patternType));
       g_setupManager.EvaluateAndExecute(pattern_dto, contextData);
    }
 }
