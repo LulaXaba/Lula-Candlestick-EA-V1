@@ -51,8 +51,8 @@ bool C_EngulfingDetector::Detect(const int barIndex, CSensorArray* sensor, CPatt
 
    double body1 = MathAbs(open1 - close1);
    double body2 = MathAbs(open2 - close2);
-
-   if(body1 < 1 * _Point || body2 < 1 * _Point) return false; // Filter out zero-size structures
+   SSymbolProfile prof = CSymbolProfile::Get(m_symbol);
+   if(body1 < prof.engulfing_min_body_pts || body2 < prof.engulfing_min_body_pts) return false; // Filter out zero/tiny size structures
 
    // 1. Identify Base Bullish / Bearish Engulfing Structure
    bool isBullishEngulfing = (close2 < open2) && (close1 > open1) && 

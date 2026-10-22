@@ -51,12 +51,14 @@ bool C_PinBarDetector::Detect(const int barIndex, CSensorArray* sensor, CPattern
    double body       = MathAbs(open - close);
    double upper_wick = high - MathMax(open, close);
    double lower_wick = MathMin(open, close) - low;
-   double close_threshold_bull = low  + (range * 0.35); // was 0.50
-   double close_threshold_bear = high - (range * 0.35); // was 0.50
+   SSymbolProfile prof = CSymbolProfile::Get(m_symbol);
+   double effective_wick_ratio = (m_wick_ratio > 0.0) ? m_wick_ratio : prof.pinbar_min_wick_ratio;
+   double close_threshold_bull = low  + (range * prof.pinbar_close_pct);
+   double close_threshold_bear = high - (range * prof.pinbar_close_pct);
 
    // Identify base mathematical structure
-   bool isBullishPin = (lower_wick >= (m_wick_ratio * range)) && (close > close_threshold_bull);
-   bool isBearishPin = (upper_wick >= (m_wick_ratio * range)) && (close < close_threshold_bear);
+   bool isBullishPin = (lower_wick >= (effective_wick_ratio * range)) && (close > close_threshold_bull);
+   bool isBearishPin = (upper_wick >= (effective_wick_ratio * range)) && (close < close_threshold_bear);
 
    if(!isBullishPin && !isBearishPin) return false;
 

@@ -69,8 +69,9 @@ public:
    bool     IsLowerLow() const;
    
    //--- Pullback detection
-   bool     IsPullbackToHL(double currentPrice, double variance) const;  // Long setup
-   bool     IsPullbackToLH(double currentPrice, double variance) const;  // Short setup
+   bool     IsPullbackToHL(double currentPrice, double atr_mult = 0.0) const;  // Long setup
+   bool     IsPullbackToLH(double currentPrice, double atr_mult = 0.0) const;  // Short setup
+   double   GetH1ATR() const;
    
    void     PrintNodes() const;     // Debug
 };
@@ -327,7 +328,25 @@ bool CZigZagEngine::IsHigherLow() const  { return GetLastLow() > GetPrevLow(); }
 bool CZigZagEngine::IsLowerHigh() const  { return GetLastHigh() < GetPrevHigh(); }
 bool CZigZagEngine::IsLowerLow() const   { return GetLastLow() < GetPrevLow(); }
 
-bool CZigZagEngine::IsPullbackToHL(double currentPrice, double variance) const
+double CZigZagEngine::GetH1ATR() const
+{
+   static int h1_handle = INVALID_HANDLE;
+   static string cached_symbol = "";
+   if(h1_handle == INVALID_HANDLE || cached_symbol != m_symbol)
+   {
+      if(h1_handle != INVALID_HANDLE) IndicatorRelease(h1_handle);
+      h1_handle = iATR(m_symbol, PERIOD_H1, 14);
+      cached_symbol = m_symbol;
+   }
+   double buf[1];
+   if(h1_handle != INVALID_HANDLE && CopyBuffer(h1_handle, 0, 1, 1, buf) > 0)
+   {
+      return buf[0];
+   }
+   return 100 * _Point;
+}
+
+bool CZigZagEngine::IsPullbackToHL(double currentPrice, double atr_mult) const
 {
    SZZNode nodes[];
    if(!GetLast4Nodes(nodes))
@@ -343,17 +362,22 @@ bool CZigZagEngine::IsPullbackToHL(double currentPrice, double variance) const
       return false;
    }
    
+   SSymbolProfile prof = CSymbolProfile::Get(m_symbol);
+   double mult = (atr_mult > 0.0) ? atr_mult : prof.hl_variance_atr_mult;
+   double h1_atr = GetH1ATR();
+   double effective_variance = h1_atr * mult;
+
    double distance = MathAbs(currentPrice - nodes[0].price);
-   bool result = (distance <= variance);
+   bool result = (distance <= effective_variance);
    
-   PrintFormat("[ZZ DEBUG %s] HL=%.2f Price=%.2f Dist=%.2f Var=%.2f -> %s",
-               m_symbol, nodes[0].price, currentPrice, distance, variance,
+   PrintFormat("[ZZ DEBUG %s] HL=%.2f Price=%.2f Dist=%.2f Var=%.2f (mult=%.2f H1_ATR=%.2f) -> %s",
+               m_symbol, nodes[0].price, currentPrice, distance, effective_variance, mult, h1_atr,
                result ? "TRUE" : "FALSE");
    
    return result;
 }
 
-bool CZigZagEngine::IsPullbackToLH(double currentPrice, double variance) const
+bool CZigZagEngine::IsPullbackToLH(double currentPrice, double atr_mult) const
 {
    SZZNode nodes[];
    if(!GetLast4Nodes(nodes))
@@ -369,11 +393,16 @@ bool CZigZagEngine::IsPullbackToLH(double currentPrice, double variance) const
       return false;
    }
    
+   SSymbolProfile prof = CSymbolProfile::Get(m_symbol);
+   double mult = (atr_mult > 0.0) ? atr_mult : prof.hl_variance_atr_mult;
+   double h1_atr = GetH1ATR();
+   double effective_variance = h1_atr * mult;
+
    double distance = MathAbs(currentPrice - nodes[0].price);
-   bool result = (distance <= variance);
+   bool result = (distance <= effective_variance);
    
-   PrintFormat("[ZZ DEBUG %s] LH=%.2f Price=%.2f Dist=%.2f Var=%.2f -> %s",
-               m_symbol, nodes[0].price, currentPrice, distance, variance,
+   PrintFormat("[ZZ DEBUG %s] LH=%.2f Price=%.2f Dist=%.2f Var=%.2f (mult=%.2f H1_ATR=%.2f) -> %s",
+               m_symbol, nodes[0].price, currentPrice, distance, effective_variance, mult, h1_atr,
                result ? "TRUE" : "FALSE");
    
    return result;

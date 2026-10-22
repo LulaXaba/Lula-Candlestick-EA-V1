@@ -43,6 +43,7 @@ bool C_ContextAnalyzer::Analyze(const int barIndex, CSensorArray* sensor, CPatte
    if(result == NULL || !result.IsValid() || sensor == NULL) return false;
 
    ENUM_TRADE_DIRECTION dir = result.GetDirection();
+   SSymbolProfile prof = CSymbolProfile::Get(m_symbol);
 
    //==================================================================
    // 1. PIVOT & ZONE CONTEXT (Grade A / Zone checks first)
@@ -70,10 +71,10 @@ bool C_ContextAnalyzer::Analyze(const int barIndex, CSensorArray* sensor, CPatte
         {
          // If we want to go long, check if there's a massive upper wick on the daily (selling pressure)
          double upperWick = dHigh - MathMax(dOpen, dClose);
-         if((upperWick / dRange) >= m_daily_wick_pct)
+         if((upperWick / dRange) >= prof.daily_wick_max_long)
            {
             PrintFormat("[CTX] REJECT daily-wick dir=%d ratio=%.2f threshold=%.2f",
-                        dir, upperWick / dRange, m_daily_wick_pct);
+                        dir, upperWick / dRange, prof.daily_wick_max_long);
             return false; // Reject: Daily sellers are in control
            }
         }
@@ -81,20 +82,20 @@ bool C_ContextAnalyzer::Analyze(const int barIndex, CSensorArray* sensor, CPatte
         {
          // If we want to go short, check if there's a massive lower wick on the daily (buying pressure)
          double lowerWick = MathMin(dOpen, dClose) - dLow;
-         if((lowerWick / dRange) >= m_daily_wick_pct)
+         if((lowerWick / dRange) >= prof.daily_wick_max_short)
            {
             PrintFormat("[CTX] REJECT daily-wick dir=%d ratio=%.2f threshold=%.2f",
-                        dir, lowerWick / dRange, m_daily_wick_pct);
+                        dir, lowerWick / dRange, prof.daily_wick_max_short);
             return false; // Reject: Daily buyers are in control
            }
         }
      }
 
    //==================================================================
-   // 3. LOCAL EXTREME CHECK (Relaxed 15-bar lookback for pullbacks)
+   // 3. LOCAL EXTREME CHECK (Lookback derived from symbol profile)
    //==================================================================
    bool isLocalExtreme = false;
-   int lookback = 15;
+   int lookback = prof.local_extreme_lookback;
    int lowestIdx = -1;
    int highestIdx = -1;
    

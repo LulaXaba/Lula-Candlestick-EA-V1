@@ -8,6 +8,8 @@
 #ifndef DEFINES_MQH
 #define DEFINES_MQH
 
+#include "SymbolProfile.mqh"
+
 //+------------------------------------------------------------------+
 //| Zone Quality Ranking                                              |
 //+------------------------------------------------------------------+

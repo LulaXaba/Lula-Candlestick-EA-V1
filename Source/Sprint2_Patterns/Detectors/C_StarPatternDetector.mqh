@@ -60,9 +60,10 @@ bool C_StarPatternDetector::Detect(const int barIndex, CSensorArray* sensor, CPa
    double body2  = MathAbs(open2 - close2);
    double range2 = MathAbs(high2 - low2);
    if(range2 <= 0) return false;
+   SSymbolProfile prof = CSymbolProfile::Get(m_symbol);
 
-   // Exhaustion check: Bar 2 must be a doji/spinning top (body <= 45% of range)
-   bool isExhaustion = (body2 / range2) <= 0.45;
+   // Exhaustion check: Bar 2 must be a doji/spinning top (calibrated via symbol profile)
+   bool isExhaustion = (body2 / range2) <= prof.star_exhaustion_pct;
    if(!isExhaustion) return false;
 
    // 1. Check Morning Star (Bullish Reversal)

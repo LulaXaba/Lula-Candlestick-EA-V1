@@ -51,9 +51,11 @@ bool C_ForceBarDetector::Detect(const int barIndex, CSensorArray* sensor, CPatte
    SSensorData sData = sensor.GetData(close);
    double atr = sData.atr_Current > 0 ? sData.atr_Current : 100 * _Point;
 
+   SSymbolProfile prof = CSymbolProfile::Get(m_symbol);
+
    // 1. Evaluate Force Bar Math Parameters
-   bool isSignificantSize = (range >= atr);         // Must be at least 1x ATR
-   bool isBodyDominant    = (body / range) >= 0.50; // Body must be >= 50% of total range
+   bool isSignificantSize = (range >= atr);                                // Must be at least 1x ATR
+   bool isBodyDominant    = (body / range) >= prof.forcebar_min_body_pct; // Profile-calibrated body ratio
 
    if(!isSignificantSize || !isBodyDominant) return false;
 
