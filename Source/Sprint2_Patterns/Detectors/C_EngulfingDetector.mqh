@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                                           C_EngulfingDetector.mqh|
-//|                             Lula Price Action Execution Engine V1|
+//|                             Lula Price Action Execution Engine V2|
 //+------------------------------------------------------------------+
 #ifndef C_ENGULFINGDETECTOR_MQH
 #define C_ENGULFINGDETECTOR_MQH
@@ -15,22 +15,24 @@ class C_EngulfingDetector
 private:
    string            m_symbol;
    int               m_min_score;
+   bool              m_verbose;
 
 public:
                      C_EngulfingDetector();
                     ~C_EngulfingDetector();
 
-   bool              Init(const string symbol, int min_score);
+   bool              Init(const string symbol, int min_score, bool verbose = false);
    bool              Detect(const int barIndex, CSensorArray* sensor, CPatternResult* result);
   };
 
-C_EngulfingDetector::C_EngulfingDetector() : m_symbol(""), m_min_score(70) {}
+C_EngulfingDetector::C_EngulfingDetector() : m_symbol(""), m_min_score(70), m_verbose(false) {}
 C_EngulfingDetector::~C_EngulfingDetector() {}
 
-bool C_EngulfingDetector::Init(const string symbol, int min_score)
+bool C_EngulfingDetector::Init(const string symbol, int min_score, bool verbose)
   {
    m_symbol = symbol;
    m_min_score = min_score;
+   m_verbose = verbose;
    return true;
   }
 
@@ -52,7 +54,13 @@ bool C_EngulfingDetector::Detect(const int barIndex, CSensorArray* sensor, CPatt
    double body1 = MathAbs(open1 - close1);
    double body2 = MathAbs(open2 - close2);
    SSymbolProfile prof = CSymbolProfile::Get(m_symbol);
-   if(body1 < prof.engulfing_min_body_pts || body2 < prof.engulfing_min_body_pts) return false; // Filter out zero/tiny size structures
+   
+   if(body1 < prof.engulfing_min_body_pts || body2 < prof.engulfing_min_body_pts)
+     {
+      if(m_verbose) PrintFormat("[DET ENG] body1=%.5f body2=%.5f min=%.5f -> MISS (bodies too small)",
+                                body1, body2, prof.engulfing_min_body_pts);
+      return false;
+     }
 
    // 1. Identify Base Bullish / Bearish Engulfing Structure
    bool isBullishEngulfing = (close2 < open2) && (close1 > open1) && 
@@ -60,6 +68,19 @@ bool C_EngulfingDetector::Detect(const int barIndex, CSensorArray* sensor, CPatt
 
    bool isBearishEngulfing = (close2 > open2) && (close1 < open1) && 
                              (open1 >= close2) && (close1 <= open2);
+
+   if(m_verbose)
+     {
+      if(isBullishEngulfing)
+         PrintFormat("[DET ENG] body1=%.5f body2=%.5f ratio=%.2f -> HIT(bull) score=70",
+                     body1, body2, body2 > 0 ? body1/body2 : 0);
+      else if(isBearishEngulfing)
+         PrintFormat("[DET ENG] body1=%.5f body2=%.5f ratio=%.2f -> HIT(bear) score=70",
+                     body1, body2, body2 > 0 ? body1/body2 : 0);
+      else
+         PrintFormat("[DET ENG] body1=%.5f body2=%.5f -> MISS (structure)",
+                     body1, body2);
+     }
 
    if(!isBullishEngulfing && !isBearishEngulfing) return false;
 
@@ -86,7 +107,11 @@ bool C_EngulfingDetector::Detect(const int barIndex, CSensorArray* sensor, CPatt
    if(isBearishEngulfing && sData.weeklyBias == BIAS_BEARISH) score += 10;
 
    // Validation Gate
-   if(score < m_min_score) return false;
+   if(score < m_min_score)
+     {
+      if(m_verbose) PrintFormat("[DET ENG] score=%d < min=%d -> REJECT", score, m_min_score);
+      return false;
+     }
 
    // 4. Populate DTO Output
    double atr = sData.atr_Current > 0 ? sData.atr_Current : 100 * _Point; 

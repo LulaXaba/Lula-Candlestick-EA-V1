@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                                               CPatternEngine.mqh |
-//|                             Lula Price Action Execution Engine V1|
+//|                             Lula Price Action Execution Engine V2|
 //+------------------------------------------------------------------+
 #ifndef CPATTERNENGINE_MQH
 #define CPATTERNENGINE_MQH
@@ -22,6 +22,7 @@ class CPatternEngine
 private:
    double               m_pinbar_wick_ratio;
    int                  m_min_score;
+   bool                 m_verbose;
    
    CPatternResult*      m_latest_result;
    C_ContextAnalyzer*   m_context_analyzer;
@@ -39,7 +40,7 @@ public:
                         CPatternEngine();
                        ~CPatternEngine();
 
-   bool                 Init(double pinbar_ratio, int min_score);
+   bool                 Init(double pinbar_ratio, int min_score, bool verbose = false);
    void                 Deinit();
 
    //--- Main Execution
@@ -50,7 +51,7 @@ public:
    static int           Cmp(double price1, double price2, double point_tolerance);
   };
 
-CPatternEngine::CPatternEngine() : m_pinbar_wick_ratio(0.65), m_min_score(70)
+CPatternEngine::CPatternEngine() : m_pinbar_wick_ratio(0.65), m_min_score(70), m_verbose(false)
   {
    m_latest_result      = new CPatternResult();
    m_context_analyzer   = new C_ContextAnalyzer();
@@ -69,20 +70,21 @@ CPatternEngine::~CPatternEngine()
    Deinit();
   }
 
-bool CPatternEngine::Init(double pinbar_ratio, int min_score)
+bool CPatternEngine::Init(double pinbar_ratio, int min_score, bool verbose)
   {
    m_pinbar_wick_ratio = pinbar_ratio;
    m_min_score         = min_score;
+   m_verbose           = verbose;
    
-   if(m_context_analyzer != NULL)   m_context_analyzer.Init(_Symbol);
+   if(m_context_analyzer != NULL)   m_context_analyzer.Init(_Symbol, verbose);
    
-   if(m_pinbar_detector != NULL)    m_pinbar_detector.Init(_Symbol, m_pinbar_wick_ratio, m_min_score);
-   if(m_engulfing_detector != NULL) m_engulfing_detector.Init(_Symbol, m_min_score);
-   if(m_insidebar_detector != NULL) m_insidebar_detector.Init(_Symbol, m_min_score);
-   if(m_fbo_detector != NULL)       m_fbo_detector.Init(_Symbol, m_min_score);
-   if(m_dblhc_detector != NULL)     m_dblhc_detector.Init(_Symbol, m_min_score);
-   if(m_force_detector != NULL)     m_force_detector.Init(_Symbol, m_min_score);
-   if(m_star_detector != NULL)      m_star_detector.Init(_Symbol, m_min_score);
+   if(m_pinbar_detector != NULL)    m_pinbar_detector.Init(_Symbol, m_pinbar_wick_ratio, m_min_score, verbose);
+   if(m_engulfing_detector != NULL) m_engulfing_detector.Init(_Symbol, m_min_score, verbose);
+   if(m_insidebar_detector != NULL) m_insidebar_detector.Init(_Symbol, m_min_score, verbose);
+   if(m_fbo_detector != NULL)       m_fbo_detector.Init(_Symbol, m_min_score, verbose);
+   if(m_dblhc_detector != NULL)     m_dblhc_detector.Init(_Symbol, m_min_score, verbose);
+   if(m_force_detector != NULL)     m_force_detector.Init(_Symbol, m_min_score, verbose);
+   if(m_star_detector != NULL)      m_star_detector.Init(_Symbol, m_min_score, verbose);
    
    return true;
   }
@@ -114,6 +116,20 @@ CPatternResult* CPatternEngine::ScanForPattern(CSensorArray* sensor)
    
    m_latest_result.Clear();
    
+   //--- Verbose scan entry
+   if(m_verbose)
+     {
+      double o = iOpen(_Symbol, PERIOD_CURRENT, 1);
+      double h = iHigh(_Symbol, PERIOD_CURRENT, 1);
+      double l = iLow(_Symbol, PERIOD_CURRENT, 1);
+      double c = iClose(_Symbol, PERIOD_CURRENT, 1);
+      double body = MathAbs(o - c);
+      double range = MathAbs(h - l);
+      PrintFormat("[SCAN] %s %s O=%.5f H=%.5f L=%.5f C=%.5f body=%.5f range=%.5f",
+                  _Symbol, TimeToString(iTime(_Symbol, PERIOD_CURRENT, 1)),
+                  o, h, l, c, body, range);
+     }
+   
    bool patternFound = false;
    
    //--- DETECTOR PRIORITY CASCADE ---
@@ -130,14 +146,23 @@ CPatternResult* CPatternEngine::ScanForPattern(CSensorArray* sensor)
       PrintFormat("[PAT] No detector fired bar=1 O=%.2f H=%.2f L=%.2f C=%.2f",
                   iOpen(_Symbol, PERIOD_CURRENT, 1), iHigh(_Symbol, PERIOD_CURRENT, 1),
                   iLow(_Symbol, PERIOD_CURRENT, 1), iClose(_Symbol, PERIOD_CURRENT, 1));
+      if(m_verbose)
+         Print("[SCAN RESULT] MISS");
      }
 
    //--- FINAL CONTEXT FILTER ---
    if(patternFound)
      {
+      if(m_verbose)
+        {
+         PrintFormat("[SCAN RESULT] pattern=%s direction=%s score=70",
+                     EnumToString(m_latest_result.GetType()),
+                     m_latest_result.GetDirection() == DIRECTION_LONG ? "long" : "short");
+        }
       // If the context analyzer rejects it, clear the result.
       if(!m_context_analyzer.Analyze(1, sensor, m_latest_result))
         {
+         if(m_verbose) Print("[SCAN RESULT] BLOCKED by context analyzer");
          m_latest_result.Clear();
         }
      }

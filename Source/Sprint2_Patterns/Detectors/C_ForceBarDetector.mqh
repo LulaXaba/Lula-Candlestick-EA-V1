@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                                         C_ForceBarDetector.mqh   |
-//|                             Lula Price Action Execution Engine V1|
+//|                             Lula Price Action Execution Engine V2|
 //+------------------------------------------------------------------+
 #ifndef C_FORCEBARDETECTOR_MQH
 #define C_FORCEBARDETECTOR_MQH
@@ -15,22 +15,24 @@ class C_ForceBarDetector
 private:
    string            m_symbol;
    int               m_min_score;
+   bool              m_verbose;
 
 public:
                      C_ForceBarDetector();
                     ~C_ForceBarDetector();
 
-   bool              Init(const string symbol, int min_score);
+   bool              Init(const string symbol, int min_score, bool verbose = false);
    bool              Detect(const int barIndex, CSensorArray* sensor, CPatternResult* result);
   };
 
-C_ForceBarDetector::C_ForceBarDetector() : m_symbol(""), m_min_score(70) {}
+C_ForceBarDetector::C_ForceBarDetector() : m_symbol(""), m_min_score(70), m_verbose(false) {}
 C_ForceBarDetector::~C_ForceBarDetector() {}
 
-bool C_ForceBarDetector::Init(const string symbol, int min_score)
+bool C_ForceBarDetector::Init(const string symbol, int min_score, bool verbose)
   {
    m_symbol = symbol;
    m_min_score = min_score;
+   m_verbose = verbose;
    return true;
   }
 
@@ -54,8 +56,20 @@ bool C_ForceBarDetector::Detect(const int barIndex, CSensorArray* sensor, CPatte
    SSymbolProfile prof = CSymbolProfile::Get(m_symbol);
 
    // 1. Evaluate Force Bar Math Parameters
+   double bodyRatio = body / range;
    bool isSignificantSize = (range >= atr);                                // Must be at least 1x ATR
-   bool isBodyDominant    = (body / range) >= prof.forcebar_min_body_pct; // Profile-calibrated body ratio
+   bool isBodyDominant    = (bodyRatio) >= prof.forcebar_min_body_pct; // Profile-calibrated body ratio
+
+   if(m_verbose)
+     {
+      if(isSignificantSize && isBodyDominant)
+         PrintFormat("[DET FORCE] body/range=%.2f threshold=%.2f range=%.5f atr=%.5f -> HIT score=70",
+                     bodyRatio, prof.forcebar_min_body_pct, range, atr);
+      else
+         PrintFormat("[DET FORCE] body/range=%.2f threshold=%.2f range=%.5f atr=%.5f sigSize=%s bodyDom=%s -> MISS",
+                     bodyRatio, prof.forcebar_min_body_pct, range, atr,
+                     isSignificantSize ? "Y" : "N", isBodyDominant ? "Y" : "N");
+     }
 
    if(!isSignificantSize || !isBodyDominant) return false;
 
@@ -79,7 +93,11 @@ bool C_ForceBarDetector::Detect(const int barIndex, CSensorArray* sensor, CPatte
    if(isExtremeDisplacement) score += 10;
 
    // Validation Gate
-   if(score < m_min_score) return false;
+   if(score < m_min_score)
+     {
+      if(m_verbose) PrintFormat("[DET FORCE] score=%d < min=%d -> REJECT", score, m_min_score);
+      return false;
+     }
 
    // 4. Determine Grade
    // An extreme displacement force bar bypasses 1H checks because the momentum is overwhelming

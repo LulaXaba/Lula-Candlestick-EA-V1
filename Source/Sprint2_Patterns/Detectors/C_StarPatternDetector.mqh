@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                                         C_StarPatternDetector.mqh|
-//|                             Lula Price Action Execution Engine V1|
+//|                             Lula Price Action Execution Engine V2|
 //+------------------------------------------------------------------+
 #ifndef C_STARPATTERNDETECTOR_MQH
 #define C_STARPATTERNDETECTOR_MQH
@@ -15,22 +15,24 @@ class C_StarPatternDetector
 private:
    string            m_symbol;
    int               m_min_score;
+   bool              m_verbose;
 
 public:
                      C_StarPatternDetector();
                     ~C_StarPatternDetector();
 
-   bool              Init(const string symbol, int min_score);
+   bool              Init(const string symbol, int min_score, bool verbose = false);
    bool              Detect(const int barIndex, CSensorArray* sensor, CPatternResult* result);
   };
 
-C_StarPatternDetector::C_StarPatternDetector() : m_symbol(""), m_min_score(70) {}
+C_StarPatternDetector::C_StarPatternDetector() : m_symbol(""), m_min_score(70), m_verbose(false) {}
 C_StarPatternDetector::~C_StarPatternDetector() {}
 
-bool C_StarPatternDetector::Init(const string symbol, int min_score)
+bool C_StarPatternDetector::Init(const string symbol, int min_score, bool verbose)
   {
    m_symbol = symbol;
    m_min_score = min_score;
+   m_verbose = verbose;
    return true;
   }
 
@@ -63,7 +65,15 @@ bool C_StarPatternDetector::Detect(const int barIndex, CSensorArray* sensor, CPa
    SSymbolProfile prof = CSymbolProfile::Get(m_symbol);
 
    // Exhaustion check: Bar 2 must be a doji/spinning top (calibrated via symbol profile)
-   bool isExhaustion = (body2 / range2) <= prof.star_exhaustion_pct;
+   double exhaustionRatio = body2 / range2;
+   bool isExhaustion = exhaustionRatio <= prof.star_exhaustion_pct;
+   
+   if(m_verbose)
+     {
+      PrintFormat("[DET STAR] body2/range2=%.2f threshold=%.2f -> %s",
+                  exhaustionRatio, prof.star_exhaustion_pct, isExhaustion ? "EXHAUSTION" : "MISS");
+     }
+   
    if(!isExhaustion) return false;
 
    // 1. Check Morning Star (Bullish Reversal)
@@ -86,6 +96,11 @@ bool C_StarPatternDetector::Detect(const int barIndex, CSensorArray* sensor, CPa
 
    bool isEveningStar = isBullishBase && isHighestHigh && isBearishConf && piercesMidpointDn;
 
+   if(m_verbose && (isMorningStar || isEveningStar))
+      PrintFormat("[DET STAR] %s detected -> HIT score=70", isMorningStar ? "MorningStar" : "EveningStar");
+   else if(m_verbose)
+      Print("[DET STAR] No star structure -> MISS");
+
    if(!isMorningStar && !isEveningStar) return false;
 
    // 3. Fetch Market Context & Score
@@ -103,7 +118,11 @@ bool C_StarPatternDetector::Detect(const int barIndex, CSensorArray* sensor, CPa
    if(isEveningStar && sData.weeklyBias == BIAS_BEARISH) score += 10;
 
    // Validation Gate
-   if(score < m_min_score) return false;
+   if(score < m_min_score)
+     {
+      if(m_verbose) PrintFormat("[DET STAR] score=%d < min=%d -> REJECT", score, m_min_score);
+      return false;
+     }
 
    // 4. Determine Grade (If the confirmation bar is massive, promote to Grade A)
    double range1 = MathAbs(high1 - low1);

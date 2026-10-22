@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                                     C_FalseBreakoutDetector.mqh  |
-//|                             Lula Price Action Execution Engine V1|
+//|                             Lula Price Action Execution Engine V2|
 //+------------------------------------------------------------------+
 #ifndef C_FALSEBREAKOUTDETECTOR_MQH
 #define C_FALSEBREAKOUTDETECTOR_MQH
@@ -16,22 +16,24 @@ private:
    string            m_symbol;
    int               m_min_score;
    bool              m_is_vix75;
+   bool              m_verbose;
 
 public:
                      C_FalseBreakoutDetector();
                     ~C_FalseBreakoutDetector();
 
-   bool              Init(const string symbol, int min_score);
+   bool              Init(const string symbol, int min_score, bool verbose = false);
    bool              Detect(const int barIndex, CSensorArray* sensor, CPatternResult* result);
   };
 
-C_FalseBreakoutDetector::C_FalseBreakoutDetector() : m_symbol(""), m_min_score(70), m_is_vix75(false) {}
+C_FalseBreakoutDetector::C_FalseBreakoutDetector() : m_symbol(""), m_min_score(70), m_is_vix75(false), m_verbose(false) {}
 C_FalseBreakoutDetector::~C_FalseBreakoutDetector() {}
 
-bool C_FalseBreakoutDetector::Init(const string symbol, int min_score)
+bool C_FalseBreakoutDetector::Init(const string symbol, int min_score, bool verbose)
   {
    m_symbol = symbol;
    m_min_score = min_score;
+   m_verbose = verbose;
    
    m_is_vix75 = (StringFind(m_symbol, "75") >= 0 || StringFind(m_symbol, "10") >= 0 || 
                  StringFind(m_symbol, "25") >= 0 || StringFind(m_symbol, "50") >= 0 || 
@@ -91,6 +93,16 @@ bool C_FalseBreakoutDetector::Detect(const int barIndex, CSensorArray* sensor, C
         }
      }
 
+   if(m_verbose)
+     {
+      if(isBullishFBO)
+         PrintFormat("[DET FBO] Bullish FBO detected penetration_threshold=%.5f -> HIT score=75", penetration_threshold);
+      else if(isBearishFBO)
+         PrintFormat("[DET FBO] Bearish FBO detected penetration_threshold=%.5f -> HIT score=75", penetration_threshold);
+      else
+         PrintFormat("[DET FBO] No zone piercing found -> MISS");
+     }
+
    if(!isBullishFBO && !isBearishFBO) return false;
 
    // 3. Score the Setup
@@ -102,7 +114,11 @@ bool C_FalseBreakoutDetector::Detect(const int barIndex, CSensorArray* sensor, C
    if(isBearishFBO && dataClose.weeklyBias == BIAS_BEARISH) score += 15;
 
    // Validation Gate
-   if(score < m_min_score) return false;
+   if(score < m_min_score)
+     {
+      if(m_verbose) PrintFormat("[DET FBO] score=%d < min=%d -> REJECT", score, m_min_score);
+      return false;
+     }
 
    // 4. Populate DTO Output
    ENUM_TRADE_DIRECTION dir = isBullishFBO ? DIRECTION_LONG : DIRECTION_SHORT;

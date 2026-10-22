@@ -20,6 +20,7 @@
 #include "Sprint4_Execution\CActiveTradeManager.mqh"
 #include "Sprint4_Execution\CRiskManager.mqh"
 #include "Sprint4_Execution\CTradeExecutor.mqh"
+#include "Sprint1_Sensors\CSensorArray.mqh"
 
 //+------------------------------------------------------------------+
 //| INPUT PARAMETERS                                                 |
@@ -38,7 +39,10 @@ input group "=== 3. ZIGZAG & STRUCTURE ==="
 input int    inp_ZZ_Depth_H4      = 5000;   // ZigZag Depth H4 (points)
 input int    inp_ZZ_Depth_D1      = 10000;  // ZigZag Depth D1 (points)
 input int    inp_ZZ_Depth_W1      = 20000;  // ZigZag Depth W1 (points)
-input double inp_HL_Variance      = 500.0;  // Pullback Variance (points)
+
+input group "=== 4. PATTERN ENGINE ==="
+input int    inp_MinPatternScore  = 65;     // Min pattern confidence score
+input bool   inp_VerbosePatternDebug = false; // Verbose detector/context debug
 
 //+------------------------------------------------------------------+
 //| GLOBAL SYSTEM POINTERS                                           |
@@ -49,6 +53,7 @@ CRiskManager*        g_risk;
 CTradeExecutor*      g_executor;
 CTradeSetupManager*  g_setupManager;
 CActiveTradeManager* g_activeMonitor;
+CSensorArray*        g_sensor;
 
 datetime        g_last_bar_time;
 
@@ -64,6 +69,7 @@ int OnInit()
    g_patterns      = new CPatternEngine();
    g_risk          = new CRiskManager();
    g_executor      = new CTradeExecutor();
+   g_sensor        = new CSensorArray();
    
    //--- 2. Manager Allocation
    g_setupManager  = new CTradeSetupManager(g_executor, g_risk);
@@ -71,12 +77,17 @@ int OnInit()
 
    //--- 3. Initialization
    if(!g_context.Init(_Symbol, PERIOD_CURRENT, inp_ZZ_Depth_H4, inp_ZZ_Depth_D1, inp_ZZ_Depth_W1)) return INIT_FAILED;
-   if(!g_patterns.Init(0.65, 70)) return INIT_FAILED; 
+   if(!g_patterns.Init(0.65, inp_MinPatternScore, inp_VerbosePatternDebug)) return INIT_FAILED; 
    if(!g_risk.Init(_Symbol, inp_RiskPerTradePct, inp_MaxDailyDDPct, inp_MaxTotalDDPct, inp_MinRRRatio)) return INIT_FAILED;
    if(!g_executor.Init(_Symbol, inp_MagicNumber, inp_Slippage)) return INIT_FAILED;
+   
+   //--- Determine if VIX75
+   SSymbolProfile symProf = CSymbolProfile::Get(_Symbol);
+   bool isVix75 = (symProf.cls == SYM_VOLATILE_SYNTH || symProf.cls == SYM_SPIKY_SYNTH);
+   if(!g_sensor.Init(_Symbol, 14, KAMA_FAST_PERIOD, KAMA_SLOW_PERIOD, 50, isVix75)) return INIT_FAILED;
 
    g_last_bar_time = 0;
-   Print("[Lula V2] All V2 Engines Online.");
+   PrintFormat("[Lula V2] All V2 Engines Online. Symbol=%s Class=%s", _Symbol, EnumToString(symProf.cls));
    return INIT_SUCCEEDED;
 }
 
@@ -93,6 +104,7 @@ void OnDeinit(const int reason)
    if(g_activeMonitor) { delete g_activeMonitor; g_activeMonitor = NULL; }
    if(g_risk)          { delete g_risk;          g_risk = NULL; }
    if(g_executor)      { delete g_executor;      g_executor = NULL; }
+   if(g_sensor)        { delete g_sensor;        g_sensor = NULL; }
    
    Print("[Lula V2] Shutdown complete.");
 }
@@ -102,50 +114,6 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 void OnTick()
 {
-   //================================================================
-   // TEMPORARY NUCLEAR TEST (Step 3)
-   // Remove this block after confirming execution works
-   //================================================================
-   static bool testFired = false;
-   if(!testFired && PositionsTotal() == 0)
-   {
-      testFired = true;
-      
-      CTrade test_trade;
-      test_trade.SetExpertMagicNumber(inp_MagicNumber);
-      test_trade.SetDeviationInPoints(inp_Slippage);
-      test_trade.SetTypeFilling(ORDER_FILLING_FOK);
-      
-      double lot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
-      double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-      double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-      double sl  = bid - 1000 * _Point;
-      double tp  = bid + 1000 * _Point;
-      
-      PrintFormat("[NUCLEAR TEST] Attempting BUY %.2f lots @ SL=%.2f TP=%.2f",
-                  lot, sl, tp);
-      
-      bool ok = test_trade.Buy(lot, _Symbol, ask, sl, tp, "NUCLEAR_TEST");
-      if(!ok && test_trade.ResultRetcode() == TRADE_RETCODE_INVALID_FILL)
-      {
-         test_trade.SetTypeFilling(ORDER_FILLING_IOC);
-         ok = test_trade.Buy(lot, _Symbol, ask, sl, tp, "NUCLEAR_TEST");
-      }
-      
-      if(!ok)
-      {
-         PrintFormat("[NUCLEAR TEST] FAILED: %d - %s",
-                     test_trade.ResultRetcode(),
-                     test_trade.ResultRetcodeDescription());
-      }
-      else
-      {
-         PrintFormat("[NUCLEAR TEST] SUCCESS: Ticket %I64u",
-                     test_trade.ResultOrder());
-      }
-   }
-   // === END NUCLEAR TEST ===
-
    //================================================================
    // PHASE 0: ROLLOVER FREEZE (P2)
    // No new trades between broker time 23:55–00:05. Spread protection.
@@ -182,6 +150,9 @@ void OnTick()
    //================================================================
    g_context.Update();
    SSensorData contextData = g_context.GetData();
+   
+   //--- Update sensor array for zone/ATR/KAMA data
+   g_sensor.Update();
 
    //================================================================
    // PHASE 4: PATTERN DETECTION & SETUP SCANNING
@@ -199,12 +170,12 @@ void OnTick()
       Print("[SETUP DEBUG] PASSED: Full alignment");
    }
 
-   // Gate 2: Pullback check debug
+   // Gate 2: Pullback check debug (ATR-based variance from profile)
    double checkPrice = iClose(_Symbol, PERIOD_CURRENT, 1);
    if(g_context && g_context.ZigZagH4())
    {
-      bool atHL = g_context.ZigZagH4().IsPullbackToHL(checkPrice, inp_HL_Variance);
-      bool atLH = g_context.ZigZagH4().IsPullbackToLH(checkPrice, inp_HL_Variance);
+      bool atHL = g_context.ZigZagH4().IsPullbackToHL(checkPrice);  // Uses profile ATR mult, not absolute
+      bool atLH = g_context.ZigZagH4().IsPullbackToLH(checkPrice);  // Uses profile ATR mult, not absolute
       if(!atHL && !atLH)
       {
          Print("[SETUP DEBUG] BLOCKED: Not at HL/LH");
@@ -215,20 +186,60 @@ void OnTick()
       }
    }
 
-   SPatternResult pattern_dto; 
-   // pattern_dto = g_patterns.Scan(contextData); 
-
+   //--- PATTERN ENGINE SCAN (V2 — routes through all 7 detectors + context analyzer)
+   CPatternResult* patResult = g_patterns.ScanForPattern(g_sensor);
+   
    //================================================================
    // PHASE 5: EVALUATE & EXECUTE
    // CTradeSetupManager grades the confluence and routes to executor
    //================================================================
-   if(!pattern_dto.IsValid())
+   if(patResult == NULL || !patResult.IsValid())
    {
       Print("[SETUP DEBUG] BLOCKED: No pattern");
    }
    else
    {
-      PrintFormat("[SETUP DEBUG] PASSED: Pattern=%s", EnumToString(pattern_dto.patternType));
+      PrintFormat("[SETUP DEBUG] PASSED: Pattern=%s Dir=%s Grade=%s Entry=%.5f SL=%.5f", 
+                  EnumToString(patResult.GetType()), EnumToString(patResult.GetDirection()),
+                  EnumToString(patResult.GetGrade()), patResult.GetEntryPrice(), patResult.GetStopLoss());
+      
+      //--- Convert CPatternResult to SPatternResult for the setup manager
+      SPatternResult pattern_dto;
+      pattern_dto.patternType     = patResult.GetType();
+      pattern_dto.direction       = patResult.GetDirection();
+      pattern_dto.confluenceGrade = patResult.GetGrade();
+      pattern_dto.isGradeA        = (patResult.GetGrade() >= GRADE_A);
+      pattern_dto.entryPrice      = patResult.GetEntryPrice();
+      pattern_dto.stopLoss        = patResult.GetStopLoss();
+      pattern_dto.confidenceScore = 70; // Base from detector
+      pattern_dto.barTime         = iTime(_Symbol, PERIOD_CURRENT, 1);
+      
+      //--- Store structural level for V2 exit monitoring
+      if(g_context && g_context.ZigZagH4())
+      {
+         if(pattern_dto.direction == DIRECTION_LONG)
+            pattern_dto.structuralLevel = g_context.ZigZagH4().GetLastLow();
+         else
+            pattern_dto.structuralLevel = g_context.ZigZagH4().GetLastHigh();
+      }
+      
+      //--- Merge sensor data into contextData for zone/ATR info
+      SSensorData sensorData = g_sensor.GetData(pattern_dto.entryPrice);
+      contextData.isAtSupplyZone = sensorData.isAtSupplyZone;
+      contextData.isAtDemandZone = sensorData.isAtDemandZone;
+      contextData.zoneRank       = sensorData.zoneRank;
+      contextData.zoneHigh       = sensorData.zoneHigh;
+      contextData.zoneLow        = sensorData.zoneLow;
+      contextData.weeklyBias     = sensorData.weeklyBias;
+      contextData.atr_Current    = sensorData.atr_Current;
+      contextData.atr_H1         = sensorData.atr_H1;
+      contextData.atr_H4         = sensorData.atr_H4;
+      contextData.atr_D1         = sensorData.atr_D1;
+      contextData.atr_W1         = sensorData.atr_W1;
+      contextData.kama           = sensorData.kama;
+      contextData.weeklyATR      = sensorData.weeklyATR;
+      contextData.isHighVolMode  = sensorData.isHighVolMode;
+      
       g_setupManager.EvaluateAndExecute(pattern_dto, contextData);
    }
 }

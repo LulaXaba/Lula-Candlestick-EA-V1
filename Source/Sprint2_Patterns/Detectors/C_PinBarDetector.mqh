@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                                             C_PinBarDetector.mqh |
-//|                             Lula Price Action Execution Engine V1|
+//|                             Lula Price Action Execution Engine V2|
 //+------------------------------------------------------------------+
 #ifndef C_PINBARDETECTOR_MQH
 #define C_PINBARDETECTOR_MQH
@@ -16,23 +16,25 @@ private:
    string            m_symbol;
    double            m_wick_ratio;
    int               m_min_score;
+   bool              m_verbose;
 
 public:
                      C_PinBarDetector();
                     ~C_PinBarDetector();
 
-   bool              Init(const string symbol, double wick_ratio, int min_score);
+   bool              Init(const string symbol, double wick_ratio, int min_score, bool verbose = false);
    bool              Detect(const int barIndex, CSensorArray* sensor, CPatternResult* result);
   };
 
-C_PinBarDetector::C_PinBarDetector() : m_symbol(""), m_wick_ratio(0.45), m_min_score(70) {}
+C_PinBarDetector::C_PinBarDetector() : m_symbol(""), m_wick_ratio(0.45), m_min_score(70), m_verbose(false) {}
 C_PinBarDetector::~C_PinBarDetector() {}
 
-bool C_PinBarDetector::Init(const string symbol, double wick_ratio, int min_score)
+bool C_PinBarDetector::Init(const string symbol, double wick_ratio, int min_score, bool verbose)
   {
    m_symbol = symbol;
    m_wick_ratio = wick_ratio;
    m_min_score = min_score;
+   m_verbose = verbose;
    return true;
   }
 
@@ -52,13 +54,28 @@ bool C_PinBarDetector::Detect(const int barIndex, CSensorArray* sensor, CPattern
    double upper_wick = high - MathMax(open, close);
    double lower_wick = MathMin(open, close) - low;
    SSymbolProfile prof = CSymbolProfile::Get(m_symbol);
-   double effective_wick_ratio = (m_wick_ratio > 0.0) ? m_wick_ratio : prof.pinbar_min_wick_ratio;
+   double effective_wick_ratio = prof.pinbar_min_wick_ratio;
    double close_threshold_bull = low  + (range * prof.pinbar_close_pct);
    double close_threshold_bear = high - (range * prof.pinbar_close_pct);
 
    // Identify base mathematical structure
+   double lower_wick_pct = (range > 0) ? lower_wick / range : 0;
+   double upper_wick_pct = (range > 0) ? upper_wick / range : 0;
    bool isBullishPin = (lower_wick >= (effective_wick_ratio * range)) && (close > close_threshold_bull);
    bool isBearishPin = (upper_wick >= (effective_wick_ratio * range)) && (close < close_threshold_bear);
+
+   if(m_verbose)
+     {
+      if(isBullishPin)
+         PrintFormat("[DET PIN] wick_ratio=%.2f threshold=%.2f close_pct=%.2f body=%.5f -> HIT(bull) score=70",
+                     lower_wick_pct, effective_wick_ratio, prof.pinbar_close_pct, body);
+      else if(isBearishPin)
+         PrintFormat("[DET PIN] wick_ratio=%.2f threshold=%.2f close_pct=%.2f body=%.5f -> HIT(bear) score=70",
+                     upper_wick_pct, effective_wick_ratio, prof.pinbar_close_pct, body);
+      else
+         PrintFormat("[DET PIN] lower_wick=%.2f upper_wick=%.2f threshold=%.2f close_pct=%.2f -> MISS",
+                     lower_wick_pct, upper_wick_pct, effective_wick_ratio, prof.pinbar_close_pct);
+     }
 
    if(!isBullishPin && !isBearishPin) return false;
 
@@ -76,7 +93,11 @@ bool C_PinBarDetector::Detect(const int barIndex, CSensorArray* sensor, CPattern
    if(isBearishPin && sData.weeklyBias == BIAS_BEARISH) score += 10;
 
    // Validation Gate
-   if(score < m_min_score) return false;
+   if(score < m_min_score)
+     {
+      if(m_verbose) PrintFormat("[DET PIN] score=%d < min=%d -> REJECT", score, m_min_score);
+      return false;
+     }
 
    // Safe ATR Fallback
    double atr = sData.atr_Current;

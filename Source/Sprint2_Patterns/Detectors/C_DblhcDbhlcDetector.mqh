@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                                       C_DblhcDbhlcDetector.mqh   |
-//|                             Lula Price Action Execution Engine V1|
+//|                             Lula Price Action Execution Engine V2|
 //+------------------------------------------------------------------+
 #ifndef C_DBLHCDBHLCDETECTOR_MQH
 #define C_DBLHCDBHLCDETECTOR_MQH
@@ -16,22 +16,24 @@ private:
    string            m_symbol;
    int               m_min_score;
    bool              m_is_vix75;
+   bool              m_verbose;
 
 public:
                      C_DblhcDbhlcDetector();
                     ~C_DblhcDbhlcDetector();
 
-   bool              Init(const string symbol, int min_score);
+   bool              Init(const string symbol, int min_score, bool verbose = false);
    bool              Detect(const int barIndex, CSensorArray* sensor, CPatternResult* result);
   };
 
-C_DblhcDbhlcDetector::C_DblhcDbhlcDetector() : m_symbol(""), m_min_score(70), m_is_vix75(false) {}
+C_DblhcDbhlcDetector::C_DblhcDbhlcDetector() : m_symbol(""), m_min_score(70), m_is_vix75(false), m_verbose(false) {}
 C_DblhcDbhlcDetector::~C_DblhcDbhlcDetector() {}
 
-bool C_DblhcDbhlcDetector::Init(const string symbol, int min_score)
+bool C_DblhcDbhlcDetector::Init(const string symbol, int min_score, bool verbose)
   {
    m_symbol = symbol;
    m_min_score = min_score;
+   m_verbose = verbose;
    
    m_is_vix75 = (StringFind(m_symbol, "75") >= 0 || StringFind(m_symbol, "10") >= 0 || 
                  StringFind(m_symbol, "25") >= 0 || StringFind(m_symbol, "50") >= 0 || 
@@ -69,6 +71,19 @@ bool C_DblhcDbhlcDetector::Detect(const int barIndex, CSensorArray* sensor, CPat
    bool isDBLHC = matchingLows  && (close1 > close2) && (close1 > open1);
    bool isDBHLC = matchingHighs && (close1 < close2) && (close1 < open1);
 
+   if(m_verbose)
+     {
+      if(isDBLHC)
+         PrintFormat("[DET DBLHC] matchLows=Y diff=%.5f tol=%.5f -> HIT(bull) score=70",
+                     MathAbs(low1-low2), tolerance);
+      else if(isDBHLC)
+         PrintFormat("[DET DBLHC] matchHighs=Y diff=%.5f tol=%.5f -> HIT(bear) score=70",
+                     MathAbs(high1-high2), tolerance);
+      else
+         PrintFormat("[DET DBLHC] matchLows=%s matchHighs=%s -> MISS",
+                     matchingLows ? "Y" : "N", matchingHighs ? "Y" : "N");
+     }
+
    if(!isDBLHC && !isDBHLC) return false;
 
    // 3. Fetch Market Context & Score
@@ -83,7 +98,11 @@ bool C_DblhcDbhlcDetector::Detect(const int barIndex, CSensorArray* sensor, CPat
    if(isDBHLC && sData.weeklyBias == BIAS_BEARISH) score += 10;
 
    // Validation Gate
-   if(score < m_min_score) return false;
+   if(score < m_min_score)
+     {
+      if(m_verbose) PrintFormat("[DET DBLHC] score=%d < min=%d -> REJECT", score, m_min_score);
+      return false;
+     }
 
    // 4. Populate DTO Output
    ENUM_TRADE_DIRECTION dir = isDBLHC ? DIRECTION_LONG : DIRECTION_SHORT;
@@ -102,11 +121,7 @@ bool C_DblhcDbhlcDetector::Detect(const int barIndex, CSensorArray* sensor, CPat
       sl = block_high + (atr * ATR_MULTIPLIER_NORMAL);
      }
 
-   // Standard DBLHC/DBHLC does not trigger the 1H bypass (Grade B)
-   result.SetPattern(PATTERN_ENGULFING, dir, GRADE_B, false, entry, sl); 
-   // Note: We classify this under ENGULFING or INSIDE_BAR family contextually. Let's map it cleanly to GRADE_B standard momentum.
-   // If you want a specific enum for DBLHC, we can use PATTERN_INSIDE_BAR as the closest proxy, or add PATTERN_DBLHC to Defines.
-   // I'll leave it mapped as a Grade B structure under PATTERN_PIN_BAR's momentum equivalent (as it's a 2-bar pinbar).
+   // Standard DBLHC/DBHLC — Grade B
    result.SetPattern(PATTERN_PIN_BAR, dir, GRADE_B, false, entry, sl);
 
    return true;

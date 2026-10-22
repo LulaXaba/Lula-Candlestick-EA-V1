@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                                           C_InsideBarDetector.mqh|
-//|                             Lula Price Action Execution Engine V1|
+//|                             Lula Price Action Execution Engine V2|
 //+------------------------------------------------------------------+
 #ifndef C_INSIDEBARDETECTOR_MQH
 #define C_INSIDEBARDETECTOR_MQH
@@ -15,22 +15,24 @@ class C_InsideBarDetector
 private:
    string            m_symbol;
    int               m_min_score;
+   bool              m_verbose;
 
 public:
                      C_InsideBarDetector();
                     ~C_InsideBarDetector();
 
-   bool              Init(const string symbol, int min_score);
+   bool              Init(const string symbol, int min_score, bool verbose = false);
    bool              Detect(const int barIndex, CSensorArray* sensor, CPatternResult* result);
   };
 
-C_InsideBarDetector::C_InsideBarDetector() : m_symbol(""), m_min_score(70) {}
+C_InsideBarDetector::C_InsideBarDetector() : m_symbol(""), m_min_score(70), m_verbose(false) {}
 C_InsideBarDetector::~C_InsideBarDetector() {}
 
-bool C_InsideBarDetector::Init(const string symbol, int min_score)
+bool C_InsideBarDetector::Init(const string symbol, int min_score, bool verbose)
   {
    m_symbol = symbol;
    m_min_score = min_score;
+   m_verbose = verbose;
    return true;
   }
 
@@ -49,6 +51,15 @@ bool C_InsideBarDetector::Detect(const int barIndex, CSensorArray* sensor, CPatt
 
    // 1. Identify Base Inside Bar Structure (Strict High/Low boundary check relaxed for synthetics)
    bool isInsideBar = (high1 <= high2) && (low1 >= low2);
+   
+   if(m_verbose)
+     {
+      if(isInsideBar)
+         PrintFormat("[DET IB] h1=%.5f<=h2=%.5f l1=%.5f>=l2=%.5f -> HIT score=70", high1, high2, low1, low2);
+      else
+         PrintFormat("[DET IB] h1=%.5f h2=%.5f l1=%.5f l2=%.5f -> MISS", high1, high2, low1, low2);
+     }
+   
    if(!isInsideBar) return false;
 
    // 2. Determine Implied Direction based on Mother Bar momentum
@@ -72,7 +83,11 @@ bool C_InsideBarDetector::Detect(const int barIndex, CSensorArray* sensor, CPatt
    if(isBearish && sData.weeklyBias == BIAS_BEARISH) score += 10;
 
    // Validation Gate
-   if(score < m_min_score) return false;
+   if(score < m_min_score)
+     {
+      if(m_verbose) PrintFormat("[DET IB] score=%d < min=%d -> REJECT", score, m_min_score);
+      return false;
+     }
 
    // 4. Populate DTO Output
    double atr = sData.atr_Current > 0 ? sData.atr_Current : 100 * _Point; 
