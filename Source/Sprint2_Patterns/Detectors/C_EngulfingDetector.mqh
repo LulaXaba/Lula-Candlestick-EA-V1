@@ -52,7 +52,7 @@ bool C_EngulfingDetector::Detect(const int barIndex, CSensorArray* sensor, CPatt
    double body1 = MathAbs(open1 - close1);
    double body2 = MathAbs(open2 - close2);
 
-   if(body1 <= 0 || body2 <= 0) return false; // Filter out doji structures in the base
+   if(body1 < 1 * _Point || body2 < 1 * _Point) return false; // Filter out zero-size structures
 
    // 1. Identify Base Bullish / Bearish Engulfing Structure
    bool isBullishEngulfing = (close2 < open2) && (close1 > open1) && 
@@ -75,7 +75,7 @@ bool C_EngulfingDetector::Detect(const int barIndex, CSensorArray* sensor, CPatt
 
    // 3. Fetch Market Context & Score
    SSensorData sData = sensor.GetData(close1);
-   int score = 60; // Base confidence score
+   int score = 70; // Base confidence score
 
    // Scoring Gate 1: Zone Confluence
    if(isBullishEngulfing && sData.isAtDemandZone) score += ZONE_CONFLUENCE_BONUS;

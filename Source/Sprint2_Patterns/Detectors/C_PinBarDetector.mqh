@@ -25,7 +25,7 @@ public:
    bool              Detect(const int barIndex, CSensorArray* sensor, CPatternResult* result);
   };
 
-C_PinBarDetector::C_PinBarDetector() : m_symbol(""), m_wick_ratio(0.65), m_min_score(70) {}
+C_PinBarDetector::C_PinBarDetector() : m_symbol(""), m_wick_ratio(0.45), m_min_score(70) {}
 C_PinBarDetector::~C_PinBarDetector() {}
 
 bool C_PinBarDetector::Init(const string symbol, double wick_ratio, int min_score)
@@ -51,18 +51,19 @@ bool C_PinBarDetector::Detect(const int barIndex, CSensorArray* sensor, CPattern
    double body       = MathAbs(open - close);
    double upper_wick = high - MathMax(open, close);
    double lower_wick = MathMin(open, close) - low;
-   double midpoint   = low + (range * 0.5);
+   double close_threshold_bull = low  + (range * 0.35); // was 0.50
+   double close_threshold_bear = high - (range * 0.35); // was 0.50
 
    // Identify base mathematical structure
-   bool isBullishPin = (lower_wick >= (m_wick_ratio * range)) && (close > midpoint);
-   bool isBearishPin = (upper_wick >= (m_wick_ratio * range)) && (close < midpoint);
+   bool isBullishPin = (lower_wick >= (m_wick_ratio * range)) && (close > close_threshold_bull);
+   bool isBearishPin = (upper_wick >= (m_wick_ratio * range)) && (close < close_threshold_bear);
 
    if(!isBullishPin && !isBearishPin) return false;
 
    // Fetch Market Context
    SSensorData sData = sensor.GetData(close);
    
-   int score = 60; // Base confidence score
+   int score = 70; // Base confidence score
 
    // Scoring Gate 1: Zone Confluence
    if(isBullishPin && sData.isAtDemandZone) score += ZONE_CONFLUENCE_BONUS;

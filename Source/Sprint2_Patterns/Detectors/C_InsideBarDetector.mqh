@@ -47,8 +47,8 @@ bool C_InsideBarDetector::Detect(const int barIndex, CSensorArray* sensor, CPatt
    double high2  = iHigh(m_symbol, PERIOD_CURRENT, barIndex + 1);
    double low2   = iLow(m_symbol, PERIOD_CURRENT, barIndex + 1);
 
-   // 1. Identify Base Inside Bar Structure (Strict High/Low boundary check)
-   bool isInsideBar = (high1 < high2) && (low1 > low2);
+   // 1. Identify Base Inside Bar Structure (Strict High/Low boundary check relaxed for synthetics)
+   bool isInsideBar = (high1 <= high2) && (low1 >= low2);
    if(!isInsideBar) return false;
 
    // 2. Determine Implied Direction based on Mother Bar momentum
@@ -61,7 +61,7 @@ bool C_InsideBarDetector::Detect(const int barIndex, CSensorArray* sensor, CPatt
    // 3. Fetch Market Context & Score
    double close1 = iClose(m_symbol, PERIOD_CURRENT, barIndex); // Inside bar close for context fetch
    SSensorData sData = sensor.GetData(close1);
-   int score = 60; // Base confidence score
+   int score = 70; // Base confidence score
 
    // Scoring Gate 1: Zone Confluence
    if(isBullish && sData.isAtDemandZone) score += ZONE_CONFLUENCE_BONUS;

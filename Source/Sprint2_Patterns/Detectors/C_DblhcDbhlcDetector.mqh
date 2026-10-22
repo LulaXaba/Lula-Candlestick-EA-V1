@@ -72,7 +72,7 @@ bool C_DblhcDbhlcDetector::Detect(const int barIndex, CSensorArray* sensor, CPat
    if(!isDBLHC && !isDBHLC) return false;
 
    // 3. Fetch Market Context & Score
-   int score = 60; // Base confidence score
+   int score = 70; // Base confidence score
 
    // Scoring Gate 1: Zone Confluence
    if(isDBLHC && sData.isAtDemandZone) score += ZONE_CONFLUENCE_BONUS;

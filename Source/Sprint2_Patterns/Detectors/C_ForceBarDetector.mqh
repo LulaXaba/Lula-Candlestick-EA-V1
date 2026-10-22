@@ -53,7 +53,7 @@ bool C_ForceBarDetector::Detect(const int barIndex, CSensorArray* sensor, CPatte
 
    // 1. Evaluate Force Bar Math Parameters
    bool isSignificantSize = (range >= atr);         // Must be at least 1x ATR
-   bool isBodyDominant    = (body / range) >= 0.80; // Body must be >= 80% of total range
+   bool isBodyDominant    = (body / range) >= 0.50; // Body must be >= 50% of total range
 
    if(!isSignificantSize || !isBodyDominant) return false;
 
@@ -62,7 +62,7 @@ bool C_ForceBarDetector::Detect(const int barIndex, CSensorArray* sensor, CPatte
    bool isBearishForce = (close < open);
 
    // 3. Fetch Market Context & Score
-   int score = 60; // Base confidence score
+   int score = 70; // Base confidence score
 
    // Scoring Gate 1: Zone Confluence (Force bars originating AT a zone are highly valid)
    if(isBullishForce && sData.isAtDemandZone) score += ZONE_CONFLUENCE_BONUS;

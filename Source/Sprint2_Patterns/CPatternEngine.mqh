@@ -22,21 +22,18 @@ class CPatternEngine
 private:
    double               m_pinbar_wick_ratio;
    int                  m_min_score;
-   datetime             m_last_bar_time;
    
-   CPatternResult* m_latest_result;
-   C_ContextAnalyzer* m_context_analyzer;
+   CPatternResult*      m_latest_result;
+   C_ContextAnalyzer*   m_context_analyzer;
    
    //--- Detectors
-   C_PinBarDetector* m_pinbar_detector;
-   C_EngulfingDetector* m_engulfing_detector;
-   C_InsideBarDetector* m_insidebar_detector;
+   C_PinBarDetector*        m_pinbar_detector;
+   C_EngulfingDetector*     m_engulfing_detector;
+   C_InsideBarDetector*     m_insidebar_detector;
    C_FalseBreakoutDetector* m_fbo_detector;
-   C_DblhcDbhlcDetector* m_dblhc_detector;
-   C_ForceBarDetector* m_force_detector;
-   C_StarPatternDetector* m_star_detector;
-
-   bool                 IsNewBar();
+   C_DblhcDbhlcDetector*    m_dblhc_detector;
+   C_ForceBarDetector*      m_force_detector;
+   C_StarPatternDetector*   m_star_detector;
 
 public:
                         CPatternEngine();
@@ -53,7 +50,7 @@ public:
    static int           Cmp(double price1, double price2, double point_tolerance);
   };
 
-CPatternEngine::CPatternEngine() : m_pinbar_wick_ratio(0.65), m_min_score(70), m_last_bar_time(0)
+CPatternEngine::CPatternEngine() : m_pinbar_wick_ratio(0.65), m_min_score(70)
   {
    m_latest_result      = new CPatternResult();
    m_context_analyzer   = new C_ContextAnalyzer();
@@ -104,17 +101,6 @@ void CPatternEngine::Deinit()
    if(m_star_detector != NULL)      { delete m_star_detector; m_star_detector = NULL; }
   }
 
-bool CPatternEngine::IsNewBar()
-  {
-   datetime current_time = iTime(_Symbol, PERIOD_CURRENT, 0);
-   if(current_time != m_last_bar_time)
-     {
-      m_last_bar_time = current_time;
-      return true;
-     }
-   return false;
-  }
-
 int CPatternEngine::Cmp(double price1, double price2, double point_tolerance)
   {
    if(MathAbs(price1 - price2) <= point_tolerance) return 0;
@@ -125,9 +111,6 @@ int CPatternEngine::Cmp(double price1, double price2, double point_tolerance)
 CPatternResult* CPatternEngine::ScanForPattern(CSensorArray* sensor)
   {
    if(sensor == NULL) return m_latest_result;
-   
-   // Strictly enforce Closed Bar Rule
-   if(!IsNewBar()) return m_latest_result;
    
    m_latest_result.Clear();
    
@@ -141,6 +124,13 @@ CPatternResult* CPatternEngine::ScanForPattern(CSensorArray* sensor)
    if(!patternFound && m_pinbar_detector.Detect(1, sensor, m_latest_result))    patternFound = true;
    if(!patternFound && m_insidebar_detector.Detect(1, sensor, m_latest_result)) patternFound = true;
    if(!patternFound && m_dblhc_detector.Detect(1, sensor, m_latest_result))     patternFound = true;
+
+   if(!patternFound)
+     {
+      PrintFormat("[PAT] No detector fired bar=1 O=%.2f H=%.2f L=%.2f C=%.2f",
+                  iOpen(_Symbol, PERIOD_CURRENT, 1), iHigh(_Symbol, PERIOD_CURRENT, 1),
+                  iLow(_Symbol, PERIOD_CURRENT, 1), iClose(_Symbol, PERIOD_CURRENT, 1));
+     }
 
    //--- FINAL CONTEXT FILTER ---
    if(patternFound)

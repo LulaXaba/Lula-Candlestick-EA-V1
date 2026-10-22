@@ -61,8 +61,8 @@ bool C_StarPatternDetector::Detect(const int barIndex, CSensorArray* sensor, CPa
    double range2 = MathAbs(high2 - low2);
    if(range2 <= 0) return false;
 
-   // Exhaustion check: Bar 2 must be a doji/spinning top (body <= 30% of range)
-   bool isExhaustion = (body2 / range2) <= 0.30;
+   // Exhaustion check: Bar 2 must be a doji/spinning top (body <= 45% of range)
+   bool isExhaustion = (body2 / range2) <= 0.45;
    if(!isExhaustion) return false;
 
    // 1. Check Morning Star (Bullish Reversal)
@@ -91,7 +91,7 @@ bool C_StarPatternDetector::Detect(const int barIndex, CSensorArray* sensor, CPa
    SSensorData sData = sensor.GetData(close1);
    double atr = sData.atr_Current > 0 ? sData.atr_Current : 100 * _Point;
 
-   int score = 65; // Base confidence score (Higher than 2-bar patterns as 3 bars = more data)
+   int score = 70; // Base confidence score
 
    // Scoring Gate 1: Zone Confluence
    if(isMorningStar && sData.isAtDemandZone) score += ZONE_CONFLUENCE_BONUS;

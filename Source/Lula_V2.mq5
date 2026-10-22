@@ -40,6 +40,10 @@ input int    inp_ZZ_Depth_D1      = 10000;  // ZigZag Depth D1 (points)
 input int    inp_ZZ_Depth_W1      = 20000;  // ZigZag Depth W1 (points)
 input double inp_HL_Variance      = 500.0;  // Pullback Variance (points)
 
+input group "=== 4. PATTERN ENGINE ==="
+input int    inp_MinPatternScore  = 65;     // Min pattern score (0-100)
+input double inp_PinBarWickRatio  = 0.45;   // Pin bar wick/range threshold
+
 //+------------------------------------------------------------------+
 //| GLOBAL SYSTEM POINTERS                                           |
 //+------------------------------------------------------------------+
@@ -71,7 +75,7 @@ int OnInit()
 
    //--- 3. Initialization
    if(!g_context.Init(_Symbol, PERIOD_CURRENT, inp_ZZ_Depth_H4, inp_ZZ_Depth_D1, inp_ZZ_Depth_W1)) return INIT_FAILED;
-   if(!g_patterns.Init(0.65, 70)) return INIT_FAILED; 
+   if(!g_patterns.Init(inp_PinBarWickRatio, inp_MinPatternScore)) return INIT_FAILED; 
    if(!g_risk.Init(_Symbol, inp_RiskPerTradePct, inp_MaxDailyDDPct, inp_MaxTotalDDPct, inp_MinRRRatio)) return INIT_FAILED;
    if(!g_executor.Init(_Symbol, inp_MagicNumber, inp_Slippage)) return INIT_FAILED;
 
