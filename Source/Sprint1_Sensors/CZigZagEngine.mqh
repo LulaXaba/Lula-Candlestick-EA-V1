@@ -73,6 +73,12 @@ public:
    bool     IsPullbackToLH(double currentPrice, double atr_mult = 0.0) const;  // Short setup
    double   GetH1ATR() const;
    
+   //--- Node accessors for SMC / Market Structure sensors
+   int      GetNodeCount() const;
+   double   GetNodePrice(int nodeIndex) const;
+   datetime GetNodeTime(int nodeIndex) const;
+   bool     IsNodeHigh(int nodeIndex) const;
+
    void     PrintNodes() const;     // Debug
 };
 
@@ -439,5 +445,51 @@ bool CZigZagEngine::IsPullbackToLH(double currentPrice, double atr_mult) const
 
 void CZigZagEngine::PrintNodes() const {
    PrintFormat("CZigZagEngine: LastHigh=%.5f, LastLow=%.5f", GetLastHigh(), GetLastLow());
+}
+
+//+------------------------------------------------------------------+
+//| Node accessors for SMC / Market Structure sensors                |
+//+------------------------------------------------------------------+
+int CZigZagEngine::GetNodeCount() const
+{
+   int count = 0;
+   for(int i = 1; i < m_bars; i++)
+   {
+      if(m_zzH[i] > 0.0 || m_zzL[i] > 0.0) count++;
+   }
+   return count;
+}
+
+double CZigZagEngine::GetNodePrice(int nodeIndex) const
+{
+   int found = 0;
+   for(int i = 1; i < m_bars; i++)
+   {
+      if(m_zzH[i] > 0.0) { if(found == nodeIndex) return m_zzH[i]; found++; }
+      else if(m_zzL[i] > 0.0) { if(found == nodeIndex) return m_zzL[i]; found++; }
+   }
+   return 0.0;
+}
+
+datetime CZigZagEngine::GetNodeTime(int nodeIndex) const
+{
+   int found = 0;
+   for(int i = 1; i < m_bars; i++)
+   {
+      if(m_zzH[i] > 0.0) { if(found == nodeIndex) return (i < ArraySize(m_time)) ? m_time[i] : iTime(m_symbol, m_tf, i); found++; }
+      else if(m_zzL[i] > 0.0) { if(found == nodeIndex) return (i < ArraySize(m_time)) ? m_time[i] : iTime(m_symbol, m_tf, i); found++; }
+   }
+   return 0;
+}
+
+bool CZigZagEngine::IsNodeHigh(int nodeIndex) const
+{
+   int found = 0;
+   for(int i = 1; i < m_bars; i++)
+   {
+      if(m_zzH[i] > 0.0) { if(found == nodeIndex) return true; found++; }
+      else if(m_zzL[i] > 0.0) { if(found == nodeIndex) return false; found++; }
+   }
+   return false;
 }
 #endif // CZIGZAGENGINE_MQH
