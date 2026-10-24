@@ -1,230 +1,189 @@
 //+------------------------------------------------------------------+
-//|                                              CDecisionTree.mqh   |
-//|                             Lula Price Action Execution Engine V1|
+//|                                             CDecisionTree.mqh    |
+//|                             Lula Price Action Execution Engine V3|
 //+------------------------------------------------------------------+
-#ifndef CDECISIONTREE_MQH
-#define CDECISIONTREE_MQH
+#ifndef C_DECISIONTREE_MQH
+#define C_DECISIONTREE_MQH
 
-#include "..\Include\Defines.mqh"
-#include "..\Include\DTOs.mqh"
-#include "CRiskManager.mqh"
+#include "../Sprint3_State/CStateMachine.mqh"
+#include "../Sprint1_Sensors/C_MarketStructureSensor.mqh"
+#include "../Sprint1_Sensors/C_OrderBlockSensor.mqh"
+#include "../Sprint1_Sensors/C_LiquiditySensor.mqh"
 
-class CDecisionTree
-  {
+enum ENUM_TRADE_SIGNAL
+{
+    SIGNAL_NONE,
+    SIGNAL_LONG,
+    SIGNAL_SHORT
+};
+
+// DTO for passing the exact coordinates to the Executor
+struct STradeSetup
+{
+    ENUM_TRADE_SIGNAL direction;
+    double            entryPrice;
+    double            stopLoss;
+    double            tpLocal;   // Ticket 1: MTF Target (Day Trade)
+    double            tpMacro;   // Ticket 2: HTF Target (The Runner)
+    string            modelName; // "OB_Continuation" or "Liquidity_Sweep"
+};
+
+class C_DecisionTree
+{
 private:
-   string            m_symbol;
-   int               m_min_pattern_score;
-   double            m_max_sl_distance;   // Gate 8: maximum SL distance in price units
-
-   //--- Rejection Logger
-   void              LogRejection(int gateId, string reason);
-
-   //--- The 7 Sequential Gates
-   bool              Gate1_WeeklyBiasDefined(const SSensorData &sensor);
-   bool              Gate2_DailyAlignment(const SSensorData &sensor);
-   bool              Gate3_AtKeyZone(const SSensorData &sensor);
-   bool              Gate4_PatternDetected(const SPatternResult &pattern);
-   bool              Gate5_1HStructureValid(const SPatternResult &pattern, const SMarketState &state);
-   bool              Gate6_RiskRewardMet(const SPatternResult &pattern, CRiskManager* risk_manager);
-   bool              Gate7_DrawdownSafe(CRiskManager* risk_manager);
-   bool              Gate8_StopLossLimit(const SPatternResult &pattern);
+    string              m_symbol;
+    
+    // Dynamic Buffer for synthetic spreads (e.g. 1.5 * ATR for SL breathing room)
+    double              GetDynamicBuffer(ENUM_TIMEFRAMES tf);
 
 public:
-                     CDecisionTree();
-                    ~CDecisionTree();
+                        C_DecisionTree();
+                       ~C_DecisionTree();
 
-   bool              Init(const string symbol, int min_pattern_score, double max_sl_distance = MAX_SL_DISTANCE_POINTS);
-   
-   //--- Main Execution Evaluation
-   bool              Evaluate(const SSensorData &sensor, const SPatternResult &pattern, const SMarketState &state, CRiskManager* risk_manager);
-  };
+    bool                Init(string symbol);
+    
+    // The core evaluation method
+    STradeSetup         Evaluate(
+                            ENUM_V3_STATE            current_state,
+                            C_MarketStructureSensor  *htf_structure,
+                            C_MarketStructureSensor  *ltf_structure, // To detect the LTF CHoCH
+                            C_OrderBlockSensor       *mtf_ob_sensor,
+                            C_LiquiditySensor        *mtf_liquidity
+                        );
+};
 
-CDecisionTree::CDecisionTree() : m_symbol(""), m_min_pattern_score(70), m_max_sl_distance(MAX_SL_DISTANCE_POINTS) {}
-CDecisionTree::~CDecisionTree() {}
+C_DecisionTree::C_DecisionTree() : m_symbol("") {}
+C_DecisionTree::~C_DecisionTree() {}
 
-bool CDecisionTree::Init(const string symbol, int min_pattern_score, double max_sl_distance)
-  {
-   m_symbol            = symbol;
-   m_min_pattern_score = min_pattern_score;
-   m_max_sl_distance   = max_sl_distance;
-   PrintFormat("[Decision Tree] Initialized. Min Score: %d | Max SL Distance: %.1f pts", m_min_pattern_score, m_max_sl_distance);
-   return true;
-  }
+bool C_DecisionTree::Init(string symbol)
+{
+    m_symbol = symbol;
+    PrintFormat("[V3 Decision Tree] Initialized for %s", m_symbol);
+    return true;
+}
 
-void CDecisionTree::LogRejection(int gateId, string reason)
-  {
-   PrintFormat("[Lula V1] GATE %d REJECTED — %s", gateId, reason);
-  }
+double C_DecisionTree::GetDynamicBuffer(ENUM_TIMEFRAMES tf)
+{
+    double atr[];
+    int handle = iATR(m_symbol, tf, 14);
+    if(handle == INVALID_HANDLE) return 0.0;
+    double buffer = 0.0;
+    if(CopyBuffer(handle, 0, 0, 1, atr) > 0)
+    {
+        buffer = atr[0] * 0.5; // 0.5x ATR buffer to avoid wick-outs
+    }
+    IndicatorRelease(handle);
+    return buffer;
+}
 
-//===================================================================
-// GATE 1: Weekly Bias Defined
-//===================================================================
-bool CDecisionTree::Gate1_WeeklyBiasDefined(const SSensorData &sensor)
-  {
-   return (sensor.weeklyBias == BIAS_BULLISH || sensor.weeklyBias == BIAS_BEARISH);
-  }
+STradeSetup C_DecisionTree::Evaluate(
+    ENUM_V3_STATE            current_state,
+    C_MarketStructureSensor  *htf_structure,
+    C_MarketStructureSensor  *ltf_structure,
+    C_OrderBlockSensor       *mtf_ob_sensor,
+    C_LiquiditySensor        *mtf_liquidity)
+{
+    STradeSetup setup;
+    ZeroMemory(setup);
+    setup.direction = SIGNAL_NONE;
+    
+    if(current_state != STATE_LTF_ARMED_LONG && current_state != STATE_LTF_ARMED_SHORT)
+        return setup; // EA is sleeping/searching. Do nothing.
 
-//===================================================================
-// GATE 2: Daily Alignment & Wick Rejection
-//===================================================================
-bool CDecisionTree::Gate2_DailyAlignment(const SSensorData &sensor)
-  {
-   // Index 1 = Last CLOSED daily candle
-   double dOpen  = iOpen(m_symbol, PERIOD_D1, 1);
-   double dClose = iClose(m_symbol, PERIOD_D1, 1);
-   double dHigh  = iHigh(m_symbol, PERIOD_D1, 1);
-   double dLow   = iLow(m_symbol, PERIOD_D1, 1);
-   
-   double range = MathAbs(dHigh - dLow);
-   if(range <= 0) return false;
+    if(htf_structure == NULL || ltf_structure == NULL || mtf_ob_sensor == NULL || mtf_liquidity == NULL)
+        return setup;
 
-   bool isBullishDay = (dClose > dOpen);
-   bool isBearishDay = (dClose < dOpen);
+    double current_bid = SymbolInfoDouble(m_symbol, SYMBOL_BID);
+    double current_ask = SymbolInfoDouble(m_symbol, SYMBOL_ASK);
+    double buffer = GetDynamicBuffer(PERIOD_M5); // Use LTF buffer for entries
+    
+    // ---------------------------------------------------------
+    // GATE 4: LOWER TIME FRAME (LTF) TRIGGER EVALUATION
+    // ---------------------------------------------------------
+    
+    if(current_state == STATE_LTF_ARMED_LONG)
+    {
+        // 1. Did the LTF print a Bullish CHoCH? (Broke above the last LTF Strong High)
+        double ltf_strong_high = ltf_structure.GetLastStrongHigh();
+        bool ltf_bullish_choch = (ltf_strong_high > 0 && current_bid > ltf_strong_high);
+        
+        if(!ltf_bullish_choch) return setup; // Still waiting for reversal confirmation
+        
+        // 2. Determine Which Model Fired
+        double dummy_sl = 0.0, sweep_level = 0.0;
+        
+        if(mtf_ob_sensor.IsInsideBullishOB(current_bid, dummy_sl))
+        {
+            // MODEL 1: Structural Continuation
+            setup.direction = SIGNAL_LONG;
+            setup.entryPrice = current_ask;
+            setup.stopLoss   = dummy_sl - buffer; // Distal line of OB minus ATR buffer
+            setup.modelName  = "OB_Continuation_Long";
+        }
+        else if(mtf_liquidity.IsEQLSwept(sweep_level))
+        {
+            // MODEL 2: Liquidity Sweep Reversal
+            setup.direction = SIGNAL_LONG;
+            setup.entryPrice = current_ask;
+            // SL goes below the lowest point of the sweep to protect against further hunting
+            setup.stopLoss   = sweep_level - buffer; 
+            setup.modelName  = "Liquidity_Sweep_Long";
+        }
+        
+        if(setup.direction == SIGNAL_LONG)
+        {
+            // Profit Maximizer Targets
+            setup.tpLocal = htf_structure.GetLastWeakHigh(); // Ticket 1 targets the immediate Weak High
+            setup.tpMacro = setup.tpLocal + (setup.tpLocal - setup.entryPrice); // Ticket 2 targets an extended 1:1 runner
+            
+            PrintFormat("[V3 Execution] %s Triggered! Entry: %.5f | SL: %.5f", setup.modelName, setup.entryPrice, setup.stopLoss);
+        }
+    }
+    else if(current_state == STATE_LTF_ARMED_SHORT)
+    {
+        // 1. Did the LTF print a Bearish CHoCH? (Broke below the last LTF Strong Low)
+        double ltf_strong_low = ltf_structure.GetLastStrongLow();
+        bool ltf_bearish_choch = (ltf_strong_low > 0 && current_bid < ltf_strong_low);
+        
+        // TRAP OVERRIDE: If a bearish CHoCH happens while inside HTF Discount, IGNORE IT.
+        if(htf_structure.PriceInDiscountZone(current_bid))
+        {
+            PrintFormat("[V3 Override] Bearish LTF CHoCH detected inside HTF Discount. Flagged as Sweep Trap. Ignored.");
+            return setup; 
+        }
+        
+        if(!ltf_bearish_choch) return setup; // Still waiting for reversal confirmation
+        
+        // 2. Determine Which Model Fired
+        double dummy_sl = 0.0, sweep_level = 0.0;
+        
+        if(mtf_ob_sensor.IsInsideBearishOB(current_bid, dummy_sl))
+        {
+            // MODEL 1: Structural Continuation
+            setup.direction = SIGNAL_SHORT;
+            setup.entryPrice = current_bid;
+            setup.stopLoss   = dummy_sl + buffer; // Distal line of OB plus ATR buffer
+            setup.modelName  = "OB_Continuation_Short";
+        }
+        else if(mtf_liquidity.IsEQHSwept(sweep_level))
+        {
+            // MODEL 2: Liquidity Sweep Reversal
+            setup.direction = SIGNAL_SHORT;
+            setup.entryPrice = current_bid;
+            setup.stopLoss   = sweep_level + buffer; 
+            setup.modelName  = "Liquidity_Sweep_Short";
+        }
+        
+        if(setup.direction == SIGNAL_SHORT)
+        {
+            // Profit Maximizer Targets
+            setup.tpLocal = htf_structure.GetLastWeakLow(); // Ticket 1 targets the immediate Weak Low
+            setup.tpMacro = setup.tpLocal - (setup.entryPrice - setup.tpLocal); // Ticket 2 targets an extended runner
+            
+            PrintFormat("[V3 Execution] %s Triggered! Entry: %.5f | SL: %.5f", setup.modelName, setup.entryPrice, setup.stopLoss);
+        }
+    }
 
-   // Alignment check
-   if(sensor.weeklyBias == BIAS_BULLISH && !isBullishDay) return false;
-   if(sensor.weeklyBias == BIAS_BEARISH && !isBearishDay) return false;
-
-   // Wick Rejection Rule (Wick against the bias must be < 60% of total range)
-   if(sensor.weeklyBias == BIAS_BULLISH)
-     {
-      double upperWick = dHigh - MathMax(dOpen, dClose);
-      if((upperWick / range) >= DAILY_REJECTION_WICK_PCT) return false;
-     }
-   else if(sensor.weeklyBias == BIAS_BEARISH)
-     {
-      double lowerWick = MathMin(dOpen, dClose) - dLow;
-      if((lowerWick / range) >= DAILY_REJECTION_WICK_PCT) return false;
-     }
-
-   return true;
-  }
-
-//===================================================================
-// GATE 3: At Key Zone (Major or Higher)
-//===================================================================
-bool CDecisionTree::Gate3_AtKeyZone(const SSensorData &sensor)
-  {
-   return (sensor.isAtSupplyZone || sensor.isAtDemandZone) && (sensor.zoneRank >= RANK_MAJOR);
-  }
-
-//===================================================================
-// GATE 4: Pattern Detected & Scored
-//===================================================================
-bool CDecisionTree::Gate4_PatternDetected(const SPatternResult &pattern)
-  {
-   return (pattern.patternType != PATTERN_NONE && pattern.confidenceScore >= m_min_pattern_score);
-  }
-
-//===================================================================
-// GATE 5: 1H Structure Valid (With Grade A Bypass)
-//===================================================================
-bool CDecisionTree::Gate5_1HStructureValid(const SPatternResult &pattern, const SMarketState &state)
-  {
-   // THE GRADE A OVERRIDE: Institutional displacement bypasses localized chop
-   if(pattern.isGradeA) return true;
-   
-   // Standard Gate 5 Rules
-   if(state.isChoppy) return false;
-   if(state.alignmentScore < 70) return false;
-   
-   // (Sprint 4 TODO: BoS/CHoCH mapping would inject here if needed later)
-   
-   return true;
-  }
-
-//===================================================================
-// GATE 6: Risk:Reward Met
-//===================================================================
-bool CDecisionTree::Gate6_RiskRewardMet(const SPatternResult &pattern, CRiskManager* risk_manager)
-  {
-   if(risk_manager == NULL) return false;
-   if(pattern.stopLoss <= 0 || pattern.takeProfit <= 0) return false;
-   
-   return (pattern.rrRatio >= risk_manager.GetMinRR()); 
-  }
-
-//===================================================================
-// GATE 7: Drawdown Safe
-//===================================================================
-bool CDecisionTree::Gate7_DrawdownSafe(CRiskManager* risk_manager)
-  {
-   if(risk_manager == NULL) return false;
-   
-   return risk_manager.IsDrawdownSafe();
-  }
-
-//===================================================================
-// GATE 8: Stop Loss Distance Cap (Account-Size Protection)
-// Rejects setups whose SL is too wide for the minimum lot size to
-// remain within the intended risk percentage. This is the primary
-// guard against the VIX75 minimum-lot stop-out scenario.
-//===================================================================
-bool CDecisionTree::Gate8_StopLossLimit(const SPatternResult &pattern)
-  {
-   double sl_distance = MathAbs(pattern.entryPrice - pattern.stopLoss);
-   if(sl_distance > m_max_sl_distance)
-     {
-      LogRejection(8, StringFormat("SL distance %.1f exceeds maximum allowed %.1f pts.", sl_distance, m_max_sl_distance));
-      return false;
-     }
-   return true;
-  }
-
-//===================================================================
-// MAIN ORCHESTRATOR EVALUATION
-//===================================================================
-bool CDecisionTree::Evaluate(const SSensorData &sensor, const SPatternResult &pattern, const SMarketState &state, CRiskManager* risk_manager)
-  {
-   if(!Gate1_WeeklyBiasDefined(sensor))
-     {
-      // We don't log Gate 1 constantly to avoid spamming the journal on every tick
-      return false; 
-     }
-
-   if(!Gate2_DailyAlignment(sensor))
-     {
-      // LogRejection(2, "Daily candle conflicts with Weekly Bias or shows massive rejection wick.");
-      return false;
-     }
-
-   if(!Gate3_AtKeyZone(sensor))
-     {
-      // LogRejection(3, "Price is not at a Major Supply/Demand Zone.");
-      return false;
-     }
-
-   if(!Gate4_PatternDetected(pattern))
-     {
-      // LogRejection(4, "No valid institutional pattern detected >= Min Score.");
-      return false;
-     }
-
-   if(!Gate5_1HStructureValid(pattern, state))
-     {
-      LogRejection(5, "1H Structure is Choppy or Alignment Score < 70 (No Grade A Bypass).");
-      return false;
-     }
-
-   if(!Gate6_RiskRewardMet(pattern, risk_manager))
-     {
-      LogRejection(6, "Calculated Risk:Reward does not meet minimum threshold.");
-      return false;
-     }
-
-   if(!Gate7_DrawdownSafe(risk_manager))
-     {
-      LogRejection(7, "Drawdown limit reached. Capital protection active.");
-      return false;
-     }
-
-   if(!Gate8_StopLossLimit(pattern))
-     {
-      return false; // Rejection already logged inside Gate8
-     }
-
-   Print("[Lula V1] All 8 gates PASSED — valid trade setup locked.");
-   return true;
-  }
-
+    return setup;
+}
 #endif

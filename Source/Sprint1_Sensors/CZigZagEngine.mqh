@@ -49,7 +49,7 @@ public:
    CZigZagEngine();
    ~CZigZagEngine();
    
-   bool     Init(string symbol, ENUM_TIMEFRAMES tf, int depthPoints);
+   bool     Init(string symbol, ENUM_TIMEFRAMES tf, int depthPoints = 1000);
    void     Update();       // Call every tick or on new bar
    
    //--- Accessors for V2 trend logic

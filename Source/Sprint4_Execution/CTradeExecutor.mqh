@@ -224,4 +224,171 @@ bool CTradeExecutor::GetH1EntryExtremes(ulong ticket, double &h1High, double &h1
    return m_entryH1Highs.TryGetValue(ticket, h1High) && m_entryH1Lows.TryGetValue(ticket, h1Low);
 }
 
+//+------------------------------------------------------------------+
+//| V3: Institutional Split Trade Executor                           |
+//+------------------------------------------------------------------+
+#include "CDecisionTree.mqh"
+
+class C_TradeExecutor
+{
+private:
+    CTrade              m_trade;
+    string              m_symbol;
+    double              m_riskPercent;
+    ulong               m_magicNumber;
+
+    bool                SetSafeFillingMode();
+    double              CalculateLotSize(double entry_price, double stop_loss);
+
+public:
+                        C_TradeExecutor();
+                       ~C_TradeExecutor();
+
+    bool                Init(string symbol, double risk_percent, ulong magic_number);
+    bool                ExecuteSplitTrade(const STradeSetup &setup);
+};
+
+C_TradeExecutor::C_TradeExecutor() : m_symbol(""), m_riskPercent(1.0), m_magicNumber(777777) {}
+C_TradeExecutor::~C_TradeExecutor() {}
+
+bool C_TradeExecutor::Init(string symbol, double risk_percent, ulong magic_number)
+{
+    m_symbol = symbol;
+    m_riskPercent = risk_percent;
+    m_magicNumber = magic_number;
+    
+    m_trade.SetExpertMagicNumber(m_magicNumber);
+    m_trade.SetDeviationInPoints(10); // Standard 10-point slippage tolerance
+    
+    if(!SetSafeFillingMode())
+    {
+        PrintFormat("[V3 Executor] FATAL: Could not set a valid filling mode for %s", m_symbol);
+        return false;
+    }
+    
+    PrintFormat("[V3 Executor] Initialized. Risk: %.2f%% | Magic: %d", m_riskPercent, m_magicNumber);
+    return true;
+}
+
+// Solves the Retcode 10030 (Unsupported Filling Mode) bug common on Deriv/Synthetics
+bool C_TradeExecutor::SetSafeFillingMode()
+{
+    int filling = (int)SymbolInfoInteger(m_symbol, SYMBOL_FILLING_MODE);
+    
+    if((filling & SYMBOL_FILLING_FOK) != 0) 
+    {
+        m_trade.SetTypeFilling(ORDER_FILLING_FOK);
+        Print("[V3 Executor] Filling Mode set to FOK (Fill or Kill)");
+        return true;
+    }
+    else if((filling & SYMBOL_FILLING_IOC) != 0) 
+    {
+        m_trade.SetTypeFilling(ORDER_FILLING_IOC);
+        Print("[V3 Executor] Filling Mode set to IOC (Immediate or Cancel)");
+        return true;
+    }
+    else
+    {
+        m_trade.SetTypeFilling(ORDER_FILLING_RETURN);
+        Print("[V3 Executor] Filling Mode set to RETURN");
+        return true;
+    }
+}
+
+double C_TradeExecutor::CalculateLotSize(double entry_price, double stop_loss)
+{
+    double balance = AccountInfoDouble(ACCOUNT_BALANCE);
+    double risk_money = balance * (m_riskPercent / 100.0);
+    
+    double tick_size  = SymbolInfoDouble(m_symbol, SYMBOL_TRADE_TICK_SIZE);
+    double tick_value = SymbolInfoDouble(m_symbol, SYMBOL_TRADE_TICK_VALUE);
+    
+    if(tick_size == 0 || tick_value == 0) return 0.0;
+    
+    // Risk in ticks
+    double sl_ticks = MathAbs(entry_price - stop_loss) / tick_size;
+    if(sl_ticks <= 0) return 0.0;
+    
+    // Total risk value for 1.0 lot
+    double risk_per_lot = sl_ticks * tick_value;
+    
+    double lot_size = risk_money / risk_per_lot;
+    
+    // Clamp to broker limits
+    double min_lot  = SymbolInfoDouble(m_symbol, SYMBOL_VOLUME_MIN);
+    double max_lot  = SymbolInfoDouble(m_symbol, SYMBOL_VOLUME_MAX);
+    double step_lot = SymbolInfoDouble(m_symbol, SYMBOL_VOLUME_STEP);
+    
+    lot_size = MathFloor(lot_size / step_lot) * step_lot;
+    if(lot_size < min_lot) lot_size = min_lot;
+    if(lot_size > max_lot) lot_size = max_lot;
+    
+    return lot_size;
+}
+
+bool C_TradeExecutor::ExecuteSplitTrade(const STradeSetup &setup)
+{
+    if(setup.direction == SIGNAL_NONE) return false;
+
+    double total_lot = CalculateLotSize(setup.entryPrice, setup.stopLoss);
+    if(total_lot <= 0.0) return false;
+
+    double min_lot  = SymbolInfoDouble(m_symbol, SYMBOL_VOLUME_MIN);
+    double step_lot = SymbolInfoDouble(m_symbol, SYMBOL_VOLUME_STEP);
+    
+    // Split the lot size in half and normalize to the broker's step volume
+    double half_lot = MathFloor((total_lot / 2.0) / step_lot) * step_lot;
+    
+    // If the split lot is smaller than the minimum, just execute a single normal trade
+    bool isSplit = true;
+    if(half_lot < min_lot)
+    {
+        half_lot = min_lot;
+        isSplit = false;
+        Print("[V3 Executor] Calculated half-lot is below minimum volume. Executing single ticket only.");
+    }
+
+    bool success = true;
+
+    if(setup.direction == SIGNAL_LONG)
+    {
+        // Ticket 1: The Day Trade (Targets immediate Weak High)
+        if(m_trade.Buy(half_lot, m_symbol, SymbolInfoDouble(m_symbol, SYMBOL_ASK), setup.stopLoss, setup.tpLocal, setup.modelName + " (Day Trade)"))
+        {
+            PrintFormat("[V3 Executor] Ticket 1 (Long) Opened. Lot: %.2f | TP Local: %.5f", half_lot, setup.tpLocal);
+        }
+        else { PrintFormat("[V3 Executor] Error opening Ticket 1: %d", m_trade.ResultRetcode()); success = false; }
+        
+        // Ticket 2: The Profit Maximizer (Targets Macro Liquidity)
+        if(isSplit)
+        {
+            if(m_trade.Buy(half_lot, m_symbol, SymbolInfoDouble(m_symbol, SYMBOL_ASK), setup.stopLoss, setup.tpMacro, setup.modelName + " (Runner)"))
+            {
+                PrintFormat("[V3 Executor] Ticket 2 (Long) Opened. Lot: %.2f | TP Macro: %.5f", half_lot, setup.tpMacro);
+            }
+            else { PrintFormat("[V3 Executor] Error opening Ticket 2: %d", m_trade.ResultRetcode()); success = false; }
+        }
+    }
+    else if(setup.direction == SIGNAL_SHORT)
+    {
+        // Ticket 1: The Day Trade (Targets immediate Weak Low)
+        if(m_trade.Sell(half_lot, m_symbol, SymbolInfoDouble(m_symbol, SYMBOL_BID), setup.stopLoss, setup.tpLocal, setup.modelName + " (Day Trade)"))
+        {
+            PrintFormat("[V3 Executor] Ticket 1 (Short) Opened. Lot: %.2f | TP Local: %.5f", half_lot, setup.tpLocal);
+        }
+        else { PrintFormat("[V3 Executor] Error opening Ticket 1: %d", m_trade.ResultRetcode()); success = false; }
+        
+        // Ticket 2: The Profit Maximizer (Targets Macro Liquidity)
+        if(isSplit)
+        {
+            if(m_trade.Sell(half_lot, m_symbol, SymbolInfoDouble(m_symbol, SYMBOL_BID), setup.stopLoss, setup.tpMacro, setup.modelName + " (Runner)"))
+            {
+                PrintFormat("[V3 Executor] Ticket 2 (Short) Opened. Lot: %.2f | TP Macro: %.5f", half_lot, setup.tpMacro);
+            }
+            else { PrintFormat("[V3 Executor] Error opening Ticket 2: %d", m_trade.ResultRetcode()); success = false; }
+        }
+    }
+
+    return success;
+}
 #endif
