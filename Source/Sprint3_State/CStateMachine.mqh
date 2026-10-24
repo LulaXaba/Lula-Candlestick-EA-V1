@@ -1,112 +1,171 @@
 //+------------------------------------------------------------------+
-//|                                                CStateMachine.mqh |
-//|                             Lula Price Action Execution Engine V1|
+//|                                              CStateMachine.mqh   |
+//|                             Lula Price Action Execution Engine V3|
 //+------------------------------------------------------------------+
-#ifndef CSTATEMACHINE_MQH
-#define CSTATEMACHINE_MQH
+#ifndef C_STATEMACHINE_MQH
+#define C_STATEMACHINE_MQH
 
-#include "..\Include\Defines.mqh"
-#include "..\Include\DTOs.mqh"
-#include "..\Sprint1_Sensors\CSensorArray.mqh"
+#include "../Sprint1_Sensors/C_MarketStructureSensor.mqh"
+#include "../Sprint1_Sensors/C_OrderBlockSensor.mqh"
+#include "../Sprint1_Sensors/C_LiquiditySensor.mqh"
+#include "../Sprint1_Sensors/CZigZagEngine.mqh"
 
-#include "C_ChoppyFilter.mqh"
-#include "C_RangeAnalyzer.mqh"
-#include "C_TrendAnalyzer.mqh"
-#include "C_RetracementDetector.mqh"
-#include "C_AlignmentScorer.mqh"
+enum ENUM_V3_STATE
+{
+    STATE_HTF_NARRATIVE,    // 1. Determining macro trend and PD ranges
+    STATE_MTF_POI_SEARCH,   // 2. Waiting for price to reach a valid MTF POI
+    STATE_LTF_ARMED_LONG,   // 3. Price is in Discount POI; LTF is awake scanning for Longs
+    STATE_LTF_ARMED_SHORT,  // 4. Price is in Premium POI; LTF is awake scanning for Shorts
+    STATE_STANDBY           // 5. Conflicting conditions, EA goes to sleep
+};
 
-class CStateMachine
-  {
+class C_StateMachine
+{
 private:
-   string                  m_symbol;
-   SMarketState            m_current_state;
-   datetime                m_last_update_time;
-
-   C_ChoppyFilter* m_choppy_filter;
-   C_RangeAnalyzer* m_range_analyzer;
-   C_TrendAnalyzer* m_trend_analyzer;
-   C_RetracementDetector* m_retracement_detector;
-   C_AlignmentScorer* m_alignment_scorer;
-
-   bool                    IsNewBar();
+    string              m_symbol;
+    ENUM_TIMEFRAMES     m_htf;
+    ENUM_TIMEFRAMES     m_mtf;
+    ENUM_TIMEFRAMES     m_ltf;
+    
+    ENUM_V3_STATE       m_currentState;
+    
+    // Bar tracking to prevent array CPU overload (MQL5 Strategy Tester bottleneck)
+    datetime            m_lastHtfTime;
+    datetime            m_lastMtfTime;
+    
+    bool                IsNewBar(ENUM_TIMEFRAMES tf, datetime &last_time);
 
 public:
-                           CStateMachine();
-                          ~CStateMachine();
+                        C_StateMachine();
+                       ~C_StateMachine();
 
-   bool                    Init(const string symbol = NULL);
-   void                    Deinit();
-   void                    Update(const SSensorData &sensor_data);
-   
-   SMarketState            GetState() const { return m_current_state; }
-  };
+    bool                Init(string symbol, ENUM_TIMEFRAMES htf, ENUM_TIMEFRAMES mtf, ENUM_TIMEFRAMES ltf);
+    
+    // The core traffic controller. Returns the active state to the main EA.
+    ENUM_V3_STATE       UpdateAndRoute(
+                            C_MarketStructureSensor *htf_structure,
+                            C_OrderBlockSensor      *mtf_ob_sensor,
+                            C_LiquiditySensor       *mtf_liquidity,
+                            CZigZagEngine           *htf_zigzag,
+                            CZigZagEngine           *mtf_zigzag
+                        );
 
-CStateMachine::CStateMachine() : m_symbol(""), m_last_update_time(0)
-  {
-   ZeroMemory(m_current_state);
-   m_current_state.state = STATE_UNDEFINED;
-   
-   m_choppy_filter        = new C_ChoppyFilter();
-   m_range_analyzer       = new C_RangeAnalyzer();
-   m_trend_analyzer       = new C_TrendAnalyzer();
-   m_retracement_detector = new C_RetracementDetector();
-   m_alignment_scorer     = new C_AlignmentScorer();
-  }
+    ENUM_V3_STATE       GetCurrentState() { return m_currentState; }
+};
 
-CStateMachine::~CStateMachine()
-  {
-   Deinit();
-  }
+C_StateMachine::C_StateMachine() : m_symbol(""), m_currentState(STATE_HTF_NARRATIVE), 
+                                   m_lastHtfTime(0), m_lastMtfTime(0) {}
 
-bool CStateMachine::Init(const string symbol)
-  {
-   m_symbol = (symbol == NULL) ? _Symbol : symbol;
-   
-   if(m_choppy_filter != NULL)        m_choppy_filter.Init(m_symbol, 14, 20.0);
-   if(m_range_analyzer != NULL)       m_range_analyzer.Init(m_symbol, 1.5, 4.0);
-   if(m_trend_analyzer != NULL)       m_trend_analyzer.Init(m_symbol);
-   if(m_retracement_detector != NULL) m_retracement_detector.Init(m_symbol);
-   if(m_alignment_scorer != NULL)     m_alignment_scorer.Init(m_symbol);
-   
-   return true;
-  }
+C_StateMachine::~C_StateMachine() {}
 
-void CStateMachine::Deinit()
-  {
-   if(m_choppy_filter != NULL)        { delete m_choppy_filter; m_choppy_filter = NULL; }
-   if(m_range_analyzer != NULL)       { delete m_range_analyzer; m_range_analyzer = NULL; }
-   if(m_trend_analyzer != NULL)       { delete m_trend_analyzer; m_trend_analyzer = NULL; }
-   if(m_retracement_detector != NULL) { delete m_retracement_detector; m_retracement_detector = NULL; }
-   if(m_alignment_scorer != NULL)     { delete m_alignment_scorer; m_alignment_scorer = NULL; }
-  }
+bool C_StateMachine::Init(string symbol, ENUM_TIMEFRAMES htf, ENUM_TIMEFRAMES mtf, ENUM_TIMEFRAMES ltf)
+{
+    m_symbol = symbol;
+    m_htf = htf;
+    m_mtf = mtf;
+    m_ltf = ltf;
+    
+    m_currentState = STATE_HTF_NARRATIVE;
+    PrintFormat("[V3 State Machine] Initialized. HTF: %s | MTF: %s | LTF: %s", 
+                EnumToString(m_htf), EnumToString(m_mtf), EnumToString(m_ltf));
+    return true;
+}
 
-bool CStateMachine::IsNewBar()
-  {
-   datetime current_time = iTime(m_symbol, PERIOD_CURRENT, 0);
-   if(current_time != m_last_update_time)
-     {
-      m_last_update_time = current_time;
-      return true;
-     }
-   return false;
-  }
+bool C_StateMachine::IsNewBar(ENUM_TIMEFRAMES tf, datetime &last_time)
+{
+    datetime currentTime = iTime(m_symbol, tf, 0);
+    if(currentTime != last_time)
+    {
+        last_time = currentTime;
+        return true;
+    }
+    return false;
+}
 
-void CStateMachine::Update(const SSensorData &sensor_data)
-  {
-   if(!IsNewBar()) return;
-   
-   ZeroMemory(m_current_state);
-   m_current_state.state = STATE_UNDEFINED;
-   
-   if(m_choppy_filter.IsChoppy()) { m_current_state.state = STATE_CHOPPY; return; }
-   
-   if(!m_range_analyzer.Evaluate(sensor_data, m_current_state))
-     {
-      m_trend_analyzer.Evaluate(sensor_data, m_current_state);
-     }
-   
-   m_retracement_detector.Evaluate(sensor_data, m_current_state);
-   m_current_state.alignmentScore = m_alignment_scorer.CalculateScore(sensor_data);
-  }
+ENUM_V3_STATE C_StateMachine::UpdateAndRoute(
+                            C_MarketStructureSensor *htf_structure,
+                            C_OrderBlockSensor      *mtf_ob_sensor,
+                            C_LiquiditySensor       *mtf_liquidity,
+                            CZigZagEngine           *htf_zigzag,
+                            CZigZagEngine           *mtf_zigzag)
+{
+    // 1. Throttle CPU: Only update Macro Sensors when a new HTF/MTF bar opens
+    if(IsNewBar(m_htf, m_lastHtfTime))
+    {
+        if(htf_zigzag != NULL)
+        {
+            htf_zigzag.Update(); // Update HTF ZigZag
+            if(htf_structure != NULL)
+                htf_structure.Update(htf_zigzag);
+        }
+    }
+    
+    if(IsNewBar(m_mtf, m_lastMtfTime))
+    {
+        if(mtf_zigzag != NULL)
+            mtf_zigzag.Update();
+        if(mtf_ob_sensor != NULL)
+            mtf_ob_sensor.Update(); // Evaluates mitigation
+        if(mtf_liquidity != NULL && mtf_zigzag != NULL)
+            mtf_liquidity.Update(mtf_zigzag); // Scans for equal highs/lows
+    }
 
+    double current_price = SymbolInfoDouble(m_symbol, SYMBOL_BID);
+    double dummy_sl = 0.0;
+    double sweep_level = 0.0;
+
+    // 2. State Evaluation: The Macro Hierarchy
+    
+    // Evaluate HTF Premium/Discount Status
+    bool inDiscount = (htf_structure != NULL) ? htf_structure.PriceInDiscountZone(current_price) : false;
+    bool inPremium  = (htf_structure != NULL) ? htf_structure.PriceInPremiumZone(current_price) : false;
+
+    // If price is nowhere near an institutional zone, drop to search mode
+    if(!inDiscount && !inPremium) 
+    {
+        m_currentState = STATE_MTF_POI_SEARCH;
+        return m_currentState;
+    }
+
+    // 3. POI Proximity & Ghost Zone Prevention
+    // Ensure we are inside a valid MTF POI before waking up the LTF
+    
+    // --- LONG EVALUATION (Model 1 & Model 2) ---
+    if(inDiscount)
+    {
+        bool inBullishOB = (mtf_ob_sensor != NULL) && mtf_ob_sensor.IsInsideBullishOB(current_price, dummy_sl);
+        bool eqlSwept    = (mtf_liquidity != NULL) && mtf_liquidity.IsEQLSwept(sweep_level);
+        
+        if(inBullishOB || eqlSwept)
+        {
+            // Price is in HTF Discount AND tapping an MTF POI. Wake up the LTF!
+            if(m_currentState != STATE_LTF_ARMED_LONG)
+                PrintFormat("[V3 State Machine] HTF Discount POI Tapped. Arming LTF for Long Triggers.");
+                
+            m_currentState = STATE_LTF_ARMED_LONG;
+            return m_currentState;
+        }
+    }
+    
+    // --- SHORT EVALUATION (Model 1 & Model 2) ---
+    if(inPremium)
+    {
+        bool inBearishOB = (mtf_ob_sensor != NULL) && mtf_ob_sensor.IsInsideBearishOB(current_price, dummy_sl);
+        bool eqhSwept    = (mtf_liquidity != NULL) && mtf_liquidity.IsEQHSwept(sweep_level);
+        
+        if(inBearishOB || eqhSwept)
+        {
+            // Price is in HTF Premium AND tapping an MTF POI. Wake up the LTF!
+            if(m_currentState != STATE_LTF_ARMED_SHORT)
+                PrintFormat("[V3 State Machine] HTF Premium POI Tapped. Arming LTF for Short Triggers.");
+                
+            m_currentState = STATE_LTF_ARMED_SHORT;
+            return m_currentState;
+        }
+    }
+
+    // Default Fallback
+    m_currentState = STATE_MTF_POI_SEARCH;
+    return m_currentState;
+}
 #endif
