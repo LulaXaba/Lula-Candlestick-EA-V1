@@ -3,11 +3,12 @@
 //|                             Lula Price Action Execution Engine V2|
 //+------------------------------------------------------------------+
 #property strict
-#property script_show_inputs
+void OnTick() {}
 
 #include "Include\SymbolClass.mqh"
+#include "Sprint1_Sensors\CZigZagEngine.mqh"
 
-void OnStart()
+void RunUnitTests()
 {
    PrintFormat("Detect(\"Boom 150 Index\") == SYM_SPIKY_SYNTH: %s (got %d)", 
       CSymbolProfile::Detect("Boom 150 Index") == SYM_SPIKY_SYNTH ? "PASS" : "FAIL", 
@@ -21,9 +22,17 @@ void OnStart()
       CSymbolProfile::Detect("VIX75") == SYM_VOLATILE_SYNTH ? "PASS" : "FAIL", 
       CSymbolProfile::Detect("VIX75"));
 
-   SSymbolProfile profBoom = CSymbolProfile::Get("Boom 150 Index");
-   PrintFormat("Boom 150 profile: name=%s cls=%d wick_long=%.2f wick_short=%.2f forcebar=%.2f pin_wick=%.2f pin_close=%.2f star=%.2f var_mult=%.2f lookback=%d",
-      profBoom.name, profBoom.cls, profBoom.daily_wick_max_long, profBoom.daily_wick_max_short,
-      profBoom.forcebar_min_body_pct, profBoom.pinbar_min_wick_ratio, profBoom.pinbar_close_pct,
-      profBoom.star_exhaustion_pct, profBoom.hl_variance_atr_mult, profBoom.local_extreme_lookback);
+   CZigZagEngine zzH4, zzD1, zzW1;
+   zzH4.Init("EURUSD", PERIOD_H4, 5000);
+   zzD1.Init("EURUSD", PERIOD_D1, 10000);
+   zzW1.Init("EURUSD", PERIOD_W1, 20000);
+   PrintFormat("EURUSD zzH4: bars=%d state=%s", iBars("EURUSD", PERIOD_H4), EnumToString(zzH4.GetTrendState()));
+   PrintFormat("EURUSD zzD1: bars=%d state=%s", iBars("EURUSD", PERIOD_D1), EnumToString(zzD1.GetTrendState()));
+   PrintFormat("EURUSD zzW1: bars=%d state=%s", iBars("EURUSD", PERIOD_W1), EnumToString(zzW1.GetTrendState()));
+}
+
+int OnInit()
+{
+   RunUnitTests();
+   return INIT_FAILED;
 }

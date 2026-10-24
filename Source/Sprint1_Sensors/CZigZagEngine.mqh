@@ -88,7 +88,19 @@ bool CZigZagEngine::Init(string symbol, ENUM_TIMEFRAMES tf, int depthPoints)
    m_symbol = symbol;
    m_tf = tf;
    m_depth = depthPoints;
-   m_depthPrice = depthPoints * SymbolInfoDouble(symbol, SYMBOL_POINT);
+
+   SSymbolProfile prof = CSymbolProfile::Get(symbol);
+   double mult = prof.zz_depth_atr_mult_h4;
+   if(m_tf == PERIOD_D1)      mult = prof.zz_depth_atr_mult_d1;
+   else if(m_tf == PERIOD_W1) mult = prof.zz_depth_atr_mult_w1;
+   else if(m_tf == PERIOD_H4) mult = prof.zz_depth_atr_mult_h4;
+
+   double h1_atr = GetH1ATR();
+   if(h1_atr > 0.0 && mult > 0.0)
+      m_depthPrice = h1_atr * mult;
+   else
+      m_depthPrice = depthPoints * SymbolInfoDouble(symbol, SYMBOL_POINT);
+
    m_direction = 1;
    m_last = 0;
    m_bars = 0;
@@ -123,6 +135,19 @@ void CZigZagEngine::Update()
 {
    int total = iBars(m_symbol, m_tf);
    if(total == 0) return;
+
+   // Dynamically calculate depth in price units using symbol profile ATR multiplier
+   SSymbolProfile prof = CSymbolProfile::Get(m_symbol);
+   double mult = prof.zz_depth_atr_mult_h4;
+   if(m_tf == PERIOD_D1)      mult = prof.zz_depth_atr_mult_d1;
+   else if(m_tf == PERIOD_W1) mult = prof.zz_depth_atr_mult_w1;
+   else if(m_tf == PERIOD_H4) mult = prof.zz_depth_atr_mult_h4;
+
+   double h1_atr = GetH1ATR();
+   if(h1_atr > 0.0 && mult > 0.0)
+      m_depthPrice = h1_atr * mult;
+   else if(m_depthPrice <= 0.0)
+      m_depthPrice = m_depth * SymbolInfoDouble(m_symbol, SYMBOL_POINT);
    
    // Resize if needed
    if(total != m_bars)
@@ -138,13 +163,13 @@ void CZigZagEngine::Update()
    CopyClose(m_symbol, m_tf, 0, total, m_close);
    CopyTime(m_symbol, m_tf, 0, total, m_time);
    
-   // Reset and recalculate all pivots
+   // Reset and recalculate all pivots chronologically (from oldest bar down to newest)
    ArrayInitialize(m_zzH, 0.0);
    ArrayInitialize(m_zzL, 0.0);
-   m_last = 0;
+   m_last = total - 1;
    m_direction = 1;
    
-   for(int i = 0; i < total - 1; i++)
+   for(int i = total - 1; i >= 0; i--)
    {
       bool set = false;
       m_zzL[i] = 0.0;
@@ -355,10 +380,12 @@ bool CZigZagEngine::IsPullbackToHL(double currentPrice, double atr_mult) const
       return false;
    }
    
+   int dec = (SymbolInfoInteger(m_symbol, SYMBOL_DIGITS) > 3) ? 4 : 2;
+   
    if(nodes[0].isHigh)
    {
-      PrintFormat("[ZZ DEBUG %s] IsPullbackToHL: Last node is HIGH (%.2f), need LOW", 
-                  m_symbol, nodes[0].price);
+      PrintFormat("[ZZ DEBUG %s] IsPullbackToHL: Last node is HIGH (%.*f), need LOW", 
+                  m_symbol, dec, nodes[0].price);
       return false;
    }
    
@@ -370,8 +397,8 @@ bool CZigZagEngine::IsPullbackToHL(double currentPrice, double atr_mult) const
    double distance = MathAbs(currentPrice - nodes[0].price);
    bool result = (distance <= effective_variance);
    
-   PrintFormat("[ZZ DEBUG %s] HL=%.2f Price=%.2f Dist=%.2f Var=%.2f (mult=%.2f H1_ATR=%.2f) -> %s",
-               m_symbol, nodes[0].price, currentPrice, distance, effective_variance, mult, h1_atr,
+   PrintFormat("[ZZ DEBUG %s] HL=%.*f Price=%.*f Dist=%.*f Var=%.*f (mult=%.2f H1_ATR=%.*f) -> %s",
+               m_symbol, dec, nodes[0].price, dec, currentPrice, dec, distance, dec, effective_variance, mult, dec, h1_atr,
                result ? "TRUE" : "FALSE");
    
    return result;
@@ -386,10 +413,12 @@ bool CZigZagEngine::IsPullbackToLH(double currentPrice, double atr_mult) const
       return false;
    }
    
+   int dec = (SymbolInfoInteger(m_symbol, SYMBOL_DIGITS) > 3) ? 4 : 2;
+
    if(!nodes[0].isHigh)
    {
-      PrintFormat("[ZZ DEBUG %s] IsPullbackToLH: Last node is LOW (%.2f), need HIGH", 
-                  m_symbol, nodes[0].price);
+      PrintFormat("[ZZ DEBUG %s] IsPullbackToLH: Last node is LOW (%.*f), need HIGH", 
+                  m_symbol, dec, nodes[0].price);
       return false;
    }
    
@@ -401,8 +430,8 @@ bool CZigZagEngine::IsPullbackToLH(double currentPrice, double atr_mult) const
    double distance = MathAbs(currentPrice - nodes[0].price);
    bool result = (distance <= effective_variance);
    
-   PrintFormat("[ZZ DEBUG %s] LH=%.2f Price=%.2f Dist=%.2f Var=%.2f (mult=%.2f H1_ATR=%.2f) -> %s",
-               m_symbol, nodes[0].price, currentPrice, distance, effective_variance, mult, h1_atr,
+   PrintFormat("[ZZ DEBUG %s] LH=%.*f Price=%.*f Dist=%.*f Var=%.*f (mult=%.2f H1_ATR=%.*f) -> %s",
+               m_symbol, dec, nodes[0].price, dec, currentPrice, dec, distance, dec, effective_variance, mult, dec, h1_atr,
                result ? "TRUE" : "FALSE");
    
    return result;

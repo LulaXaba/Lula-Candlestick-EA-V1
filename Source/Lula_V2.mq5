@@ -214,6 +214,14 @@ void OnTick()
       pattern_dto.confidenceScore = 70; // Base from detector
       pattern_dto.barTime         = iTime(_Symbol, PERIOD_CURRENT, 1);
       
+      double slDist = MathAbs(pattern_dto.entryPrice - pattern_dto.stopLoss);
+      if(pattern_dto.direction == DIRECTION_LONG)
+         pattern_dto.takeProfit1 = pattern_dto.entryPrice + (slDist * inp_MinRRRatio);
+      else
+         pattern_dto.takeProfit1 = pattern_dto.entryPrice - (slDist * inp_MinRRRatio);
+      pattern_dto.takeProfit2     = pattern_dto.takeProfit1;
+      pattern_dto.rrRatio         = inp_MinRRRatio;
+      
       //--- Store structural level for V2 exit monitoring
       if(g_context && g_context.ZigZagH4())
       {

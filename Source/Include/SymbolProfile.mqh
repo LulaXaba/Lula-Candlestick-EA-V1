@@ -33,6 +33,11 @@ struct SSymbolProfile {
 
    // --- Local extreme lookback ---
    int     local_extreme_lookback;
+
+   // --- Dynamic ZigZag Depth ATR Multipliers ---
+   double  zz_depth_atr_mult_h4;
+   double  zz_depth_atr_mult_d1;
+   double  zz_depth_atr_mult_w1;
 };
 
 class CSymbolProfile {
@@ -79,6 +84,9 @@ inline SSymbolProfile CSymbolProfile::Get(const string symbol) {
          cache.engulfing_min_body_pts= 2 * _Point;
          cache.hl_variance_atr_mult  = 0.25;
          cache.local_extreme_lookback= 8;
+         cache.zz_depth_atr_mult_h4  = 2.0;   // (~30 pips on H1 ATR)
+         cache.zz_depth_atr_mult_d1  = 3.5;   // (~55 pips, daily swings)
+         cache.zz_depth_atr_mult_w1  = 5.0;   // (~80 pips, weekly swings)
          break;
 
       case SYM_SPIKY_SYNTH:               // Boom / Crash
@@ -98,6 +106,9 @@ inline SSymbolProfile CSymbolProfile::Get(const string symbol) {
          cache.engulfing_min_body_pts= 1 * _Point;
          cache.hl_variance_atr_mult  = 0.60;  // pullbacks are wide on Boom/Crash
          cache.local_extreme_lookback= 15;
+         cache.zz_depth_atr_mult_h4  = 15.0;
+         cache.zz_depth_atr_mult_d1  = 40.0;
+         cache.zz_depth_atr_mult_w1  = 100.0;
          break;
 
       case SYM_VOLATILE_SYNTH:            // VIX75, etc.
@@ -110,6 +121,9 @@ inline SSymbolProfile CSymbolProfile::Get(const string symbol) {
          cache.engulfing_min_body_pts= 1 * _Point;
          cache.hl_variance_atr_mult  = 0.45;
          cache.local_extreme_lookback= 12;
+         cache.zz_depth_atr_mult_h4  = 15.0;
+         cache.zz_depth_atr_mult_d1  = 40.0;
+         cache.zz_depth_atr_mult_w1  = 100.0;
          break;
 
       case SYM_METAL:                     // XAU, XAG
@@ -122,6 +136,9 @@ inline SSymbolProfile CSymbolProfile::Get(const string symbol) {
          cache.engulfing_min_body_pts= 3 * _Point;
          cache.hl_variance_atr_mult  = 0.30;
          cache.local_extreme_lookback= 10;
+         cache.zz_depth_atr_mult_h4  = 10.0;
+         cache.zz_depth_atr_mult_d1  = 25.0;
+         cache.zz_depth_atr_mult_w1  = 60.0;
          break;
 
       default:
@@ -135,6 +152,9 @@ inline SSymbolProfile CSymbolProfile::Get(const string symbol) {
          cache.engulfing_min_body_pts= 2 * _Point;
          cache.hl_variance_atr_mult  = 0.30;
          cache.local_extreme_lookback= 10;
+         cache.zz_depth_atr_mult_h4  = 6.0;
+         cache.zz_depth_atr_mult_d1  = 18.0;
+         cache.zz_depth_atr_mult_w1  = 45.0;
          break;
    }
    cached_for = symbol;

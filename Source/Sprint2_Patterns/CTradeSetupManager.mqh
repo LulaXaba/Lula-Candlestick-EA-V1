@@ -43,9 +43,19 @@ public:
    bool IsFullAlignment(const SSensorData &context, ENUM_TRADE_DIRECTION dir)
    {
       if(dir == DIRECTION_LONG)
-         return (context.trendH4 == TREND_UPTREND && context.trendD1 == TREND_UPTREND && context.trendW1 == TREND_UPTREND);
+      {
+         bool h4_align = (context.trendH4 == TREND_UPTREND);
+         bool d1_align = (context.trendD1 == TREND_UPTREND || context.trendD1 == TREND_RANGE);
+         bool w1_align = (context.trendW1 != TREND_DOWNTREND);
+         return (h4_align && d1_align && w1_align);
+      }
       else if(dir == DIRECTION_SHORT)
-         return (context.trendH4 == TREND_DOWNTREND && context.trendD1 == TREND_DOWNTREND && context.trendW1 == TREND_DOWNTREND);
+      {
+         bool h4_align = (context.trendH4 == TREND_DOWNTREND);
+         bool d1_align = (context.trendD1 == TREND_DOWNTREND || context.trendD1 == TREND_RANGE);
+         bool w1_align = (context.trendW1 != TREND_UPTREND);
+         return (h4_align && d1_align && w1_align);
+      }
          
       return false;
    }

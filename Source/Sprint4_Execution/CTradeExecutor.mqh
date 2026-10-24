@@ -52,7 +52,13 @@ bool CTradeExecutor::Init(const string symbol, ulong magic_number, ulong deviati
    
    m_trade.SetExpertMagicNumber(m_magic_number);
    m_trade.SetDeviationInPoints(deviation);
-   m_trade.SetTypeFilling(ORDER_FILLING_FOK); // Fill or Kill (Standard for most brokers)
+   uint filling = (uint)SymbolInfoInteger(m_symbol, SYMBOL_FILLING_MODE);
+   if((filling & SYMBOL_FILLING_FOK) != 0)
+      m_trade.SetTypeFilling(ORDER_FILLING_FOK);
+   else if((filling & SYMBOL_FILLING_IOC) != 0)
+      m_trade.SetTypeFilling(ORDER_FILLING_IOC);
+   else
+      m_trade.SetTypeFilling(ORDER_FILLING_RETURN);
    
    return true;
   }
