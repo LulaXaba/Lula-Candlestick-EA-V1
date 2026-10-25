@@ -143,6 +143,22 @@ void C_MarketStructureSensor::EvaluateInstitutionalStrength()
          m_lastStrongHigh = 0; 
          m_lastWeakLow = 0; 
     }
+
+    // --- Dealing Range Fallback ---
+    // If strict Strong/Weak nodes haven't confirmed, use the major swing extremes
+    if(m_lastStrongLow == 0 || m_lastWeakHigh == 0 || m_lastStrongHigh == 0 || m_lastWeakLow == 0)
+    {
+        double max_high = 0, min_low = 99999999;
+        for(int k = 0; k < total; k++)
+        {
+            if(m_nodes[k].isHigh && m_nodes[k].price > max_high) max_high = m_nodes[k].price;
+            if(!m_nodes[k].isHigh && m_nodes[k].price < min_low) min_low = m_nodes[k].price;
+        }
+        if(m_lastStrongLow == 0) m_lastStrongLow = min_low;
+        if(m_lastWeakHigh == 0) m_lastWeakHigh = max_high;
+        if(m_lastStrongHigh == 0) m_lastStrongHigh = max_high;
+        if(m_lastWeakLow == 0) m_lastWeakLow = min_low;
+    }
 }
 
 bool C_MarketStructureSensor::PriceInDiscountZone(double current_price)

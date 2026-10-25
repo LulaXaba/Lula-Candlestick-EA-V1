@@ -109,6 +109,7 @@ void OnDeinit(const int reason)
         C_VisualRenderer::Clear("HTF_ZZ_");
         C_VisualRenderer::Clear("MTF_ZZ_");
         C_VisualRenderer::Clear("OB_");
+        C_VisualRenderer::Clear("HTF_Equilibrium_50");
     }
 
     // Clean up memory to prevent leaks
@@ -179,11 +180,13 @@ void OnTick()
     }
 
     // Render visuals if running in Visual Mode in Strategy Tester
-    if(MQLInfoInteger(MQL_VISUAL_MODE))
+    if(MQLInfoInteger(MQL_VISUAL_MODE) || inp_ShowVisuals)
     {
-        C_VisualRenderer::DrawZigZag(g_zzHTF, "HTF", clrBlue);
-        C_VisualRenderer::DrawZigZag(g_zzMTF, "MTF", clrOrange);
+        C_VisualRenderer::DrawZigZag(g_zzHTF, "HTF", clrBlue, 3);
+        C_VisualRenderer::DrawZigZag(g_zzMTF, "MTF", clrOrange, 1);
+        C_VisualRenderer::DrawPDRange(g_structureHTF);
         C_VisualRenderer::DrawOrderBlocks(g_obSensorMTF);
+        ChartRedraw(0);
     }
 }
 //+------------------------------------------------------------------+
