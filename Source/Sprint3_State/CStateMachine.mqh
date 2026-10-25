@@ -120,6 +120,12 @@ ENUM_V3_STATE C_StateMachine::UpdateAndRoute(
     bool inDiscount = (htf_structure != NULL) ? htf_structure.PriceInDiscountZone(current_price) : false;
     bool inPremium  = (htf_structure != NULL) ? htf_structure.PriceInPremiumZone(current_price) : false;
 
+    static datetime lastPrint = 0;
+    if(current_price != 0 && TimeCurrent() - lastPrint >= 3600) {
+        PrintFormat("[V3 State] Price: %.5f | HTF Discount: %s | HTF Premium: %s", current_price, inDiscount?"YES":"NO", inPremium?"YES":"NO");
+        lastPrint = TimeCurrent();
+    }
+
     // If price is nowhere near an institutional zone, drop to search mode
     if(!inDiscount && !inPremium) 
     {
