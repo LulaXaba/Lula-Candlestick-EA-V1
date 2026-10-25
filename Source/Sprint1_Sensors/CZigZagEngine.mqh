@@ -78,6 +78,7 @@ public:
    double   GetNodePrice(int nodeIndex) const;
    datetime GetNodeTime(int nodeIndex) const;
    bool     IsNodeHigh(int nodeIndex) const;
+   int      GetNodes(int maxCount, SZZNode &nodes[]) const;
 
    void     PrintNodes() const;     // Debug
 };
@@ -491,5 +492,33 @@ bool CZigZagEngine::IsNodeHigh(int nodeIndex) const
       else if(m_zzL[i] > 0.0) { if(found == nodeIndex) return false; found++; }
    }
    return false;
+}
+
+int CZigZagEngine::GetNodes(int maxCount, SZZNode &nodes[]) const
+{
+   ArrayResize(nodes, maxCount);
+   int found = 0;
+   
+   for(int i = 1; i < m_bars && found < maxCount; i++)
+   {
+      if(m_zzH[i] > 0.0)
+      {
+         nodes[found].price  = m_zzH[i];
+         nodes[found].time   = (i < ArraySize(m_time)) ? m_time[i] : iTime(m_symbol, m_tf, i);
+         nodes[found].index  = i;
+         nodes[found].isHigh = true;
+         found++;
+      }
+      else if(m_zzL[i] > 0.0)
+      {
+         nodes[found].price  = m_zzL[i];
+         nodes[found].time   = (i < ArraySize(m_time)) ? m_time[i] : iTime(m_symbol, m_tf, i);
+         nodes[found].index  = i;
+         nodes[found].isHigh = false;
+         found++;
+      }
+   }
+   ArrayResize(nodes, found);
+   return found;
 }
 #endif // CZIGZAGENGINE_MQH

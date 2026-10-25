@@ -17,6 +17,7 @@
 #include "Sprint3_State/CStateMachine.mqh"
 #include "Sprint4_Execution/CDecisionTree.mqh"
 #include "Sprint4_Execution/CTradeExecutor.mqh"
+#include "Sprint4_Execution/C_VisualRenderer.mqh"
 
 //+------------------------------------------------------------------+
 //| Inputs                                                           |
@@ -29,6 +30,9 @@ input group "--- Top-Down Timeframes ---"
 input ENUM_TIMEFRAMES   inp_HTF = PERIOD_H4;          // Macro Narrative (Trend)
 input ENUM_TIMEFRAMES   inp_MTF = PERIOD_M15;         // Point of Interest (OB/Liquidity)
 input ENUM_TIMEFRAMES   inp_LTF = PERIOD_M5;          // Sniper Trigger (CHoCH)
+
+input group "--- Visual Mode & Charting ---"
+input bool              inp_ShowVisuals   = true;     // Draw SMC Concepts on Chart
 
 //+------------------------------------------------------------------+
 //| Global Object Pointers                                           |
@@ -99,6 +103,14 @@ int OnInit()
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
 {
+    // Clean up visual objects on chart
+    if(inp_ShowVisuals)
+    {
+        C_VisualRenderer::Clear("HTF_ZZ_");
+        C_VisualRenderer::Clear("MTF_ZZ_");
+        C_VisualRenderer::Clear("OB_");
+    }
+
     // Clean up memory to prevent leaks
     if(CheckPointer(g_zzHTF)) delete g_zzHTF;
     if(CheckPointer(g_zzMTF)) delete g_zzMTF;
@@ -131,7 +143,15 @@ void OnTick()
         g_zzMTF
     );
 
-    // 2. CPU Optimization: If EA is not in an execution zone, go to sleep.
+    // 2. Visual Mode: Render SMC Concepts (ZigZag lines & Order Blocks) on Chart
+    if(inp_ShowVisuals)
+    {
+        C_VisualRenderer::DrawZigZag(g_zzHTF, "HTF", clrDodgerBlue);
+        C_VisualRenderer::DrawZigZag(g_zzMTF, "MTF", clrDarkOrange);
+        C_VisualRenderer::DrawOrderBlocks(g_obSensorMTF);
+    }
+
+    // 3. CPU Optimization: If EA is not in an execution zone, go to sleep.
     if(currentState == STATE_HTF_NARRATIVE || 
        currentState == STATE_MTF_POI_SEARCH || 
        currentState == STATE_STANDBY)
@@ -139,12 +159,12 @@ void OnTick()
         return; // Drops the tick instantly. Saves massive processing power.
     }
 
-    // 3. LTF Awakening: EA is sitting in an HTF PD Zone AND touching an MTF POI.
+    // 4. LTF Awakening: EA is sitting in an HTF PD Zone AND touching an MTF POI.
     // Update the Lower Timeframe structure to scan for the sniper trigger (CHoCH).
     g_zzLTF.Update();
     g_structureLTF.Update(g_zzLTF);
 
-    // 4. Decision Matrix: Evaluate if the LTF trigger conditions are fully met.
+    // 5. Decision Matrix: Evaluate if the LTF trigger conditions are fully met.
     STradeSetup setup = g_decisionTree.Evaluate(
         currentState, 
         g_structureHTF, 
@@ -153,7 +173,7 @@ void OnTick()
         g_liquidityMTF
     );
 
-    // 5. Execution: If the setup object returned a valid signal, fire the trades!
+    // 6. Execution: If the setup object returned a valid signal, fire the trades!
     if(setup.direction != SIGNAL_NONE)
     {
         if(g_executor.ExecuteSplitTrade(setup))
