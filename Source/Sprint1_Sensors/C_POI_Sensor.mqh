@@ -51,8 +51,9 @@ public:
         double atr = GetATR(14);
         if(atr <= 0.0) return;
 
-        double open[5], close[5], high[5], low[5];
-        datetime time[5];
+        // Use dynamic arrays to prevent static allocation warnings
+        double open[], close[], high[], low[];
+        datetime time[];
         
         if(CopyOpen(m_symbol, m_tf, 1, 5, open) < 5 || 
            CopyClose(m_symbol, m_tf, 1, 5, close) < 5 || 
