@@ -183,12 +183,11 @@ void OnTick()
         }
     }
 
+    // Render visuals if running in Visual Mode in Strategy Tester
     if(MQLInfoInteger(MQL_VISUAL_MODE) || inp_ShowVisuals)
     {
-        C_VisualRenderer::DrawZigZag(g_zzHTF, "HTF", clrDodgerBlue, 3);
-        C_VisualRenderer::DrawZigZag(g_zzMTF, "MTF", clrDarkOrange, 1);
-        C_VisualRenderer::DrawPOI(g_poiSensorMTF);
-        ChartRedraw(0);
+        // Broadcasts drawing to ALL open tester charts (H4, H1, M5, etc.)
+        C_VisualRenderer::RenderAll(g_zzHTF, g_zzMTF, g_structureHTF, g_poiSensorMTF);
     }
 }
 //+------------------------------------------------------------------+

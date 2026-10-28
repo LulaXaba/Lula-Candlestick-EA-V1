@@ -1,6 +1,7 @@
 //+------------------------------------------------------------------+
 //|                                           C_VisualRenderer.mqh   |
 //|                             Lula Price Action Execution Engine V3|
+//|               Multi-Chart Synchronized Institutional Renderer    |
 //+------------------------------------------------------------------+
 #ifndef C_VISUALRENDERER_MQH
 #define C_VISUALRENDERER_MQH
@@ -11,66 +12,83 @@
 
 class C_VisualRenderer {
 public:
-    static void DrawZigZag(CZigZagEngine *zz, string prefix, color clr, int width) {
+    static void RenderAll(CZigZagEngine *htfZZ, CZigZagEngine *mtfZZ, C_MarketStructureSensor *htfStruct, C_POI_Sensor *poiSensor) {
+        long chart_id = ChartFirst();
+        while(chart_id >= 0) {
+            DrawZigZag(chart_id, htfZZ, "HTF", clrDodgerBlue, 3);
+            DrawZigZag(chart_id, mtfZZ, "MTF", clrDarkOrange, 1);
+            DrawPDRange(chart_id, htfStruct);
+            DrawPOIs(chart_id, poiSensor);
+            ChartRedraw(chart_id);
+            chart_id = ChartNext(chart_id);
+        }
+    }
+
+    static void DrawZigZag(long chart_id, CZigZagEngine *zz, string prefix, color clr, int width) {
         if(zz == NULL) return;
         SZZNode nodes[];
         int count = zz.GetNodes(50, nodes);
         for(int i = 0; i < count - 1; i++) {
             if(nodes[i].time == 0 || nodes[i+1].time == 0) continue;
             string name = prefix + "_ZZ_" + IntegerToString(i);
-            if(ObjectFind(0, name) < 0) {
-                ObjectCreate(0, name, OBJ_TREND, 0, nodes[i].time, nodes[i].price, nodes[i+1].time, nodes[i+1].price);
+            if(ObjectFind(chart_id, name) < 0) {
+                ObjectCreate(chart_id, name, OBJ_TREND, 0, nodes[i].time, nodes[i].price, nodes[i+1].time, nodes[i+1].price);
+                ObjectSetInteger(chart_id, name, OBJPROP_COLOR, clr);
+                ObjectSetInteger(chart_id, name, OBJPROP_WIDTH, width);
+                ObjectSetInteger(chart_id, name, OBJPROP_RAY_RIGHT, false);
+                ObjectSetInteger(chart_id, name, OBJPROP_BACK, true);
+                ObjectSetInteger(chart_id, name, OBJPROP_HIDDEN, true); // Hide from list to reduce lag
+            } else { 
+                ObjectSetInteger(chart_id, name, OBJPROP_TIME, 0, nodes[i].time); 
+                ObjectSetDouble(chart_id, name, OBJPROP_PRICE, 0, nodes[i].price);
+                ObjectSetInteger(chart_id, name, OBJPROP_TIME, 1, nodes[i+1].time); 
+                ObjectSetDouble(chart_id, name, OBJPROP_PRICE, 1, nodes[i+1].price); 
             }
-            else { 
-                ObjectSetInteger(0, name, OBJPROP_TIME, 0, nodes[i].time); 
-                ObjectSetDouble(0, name, OBJPROP_PRICE, 0, nodes[i].price);
-                ObjectSetInteger(0, name, OBJPROP_TIME, 1, nodes[i+1].time); 
-                ObjectSetDouble(0, name, OBJPROP_PRICE, 1, nodes[i+1].price); 
-            }
-            ObjectSetInteger(0, name, OBJPROP_COLOR, clr);
-            ObjectSetInteger(0, name, OBJPROP_WIDTH, width);
-            ObjectSetInteger(0, name, OBJPROP_RAY_RIGHT, false);
-            ObjectSetInteger(0, name, OBJPROP_BACK, true);
         }
     }
 
-    static void DrawPDRange(C_MarketStructureSensor *htf) {
+    static void DrawPDRange(long chart_id, C_MarketStructureSensor *htf) {
         if(htf == NULL) return;
         double sl = htf.GetLastStrongLow(), wh = htf.GetLastWeakHigh();
         if(sl > 0 && wh > 0) {
             double eq = sl + ((wh - sl) / 2.0);
             string name = "HTF_Equilibrium_50";
-            if(ObjectFind(0, name) < 0) ObjectCreate(0, name, OBJ_HLINE, 0, 0, eq);
-            else ObjectSetDouble(0, name, OBJPROP_PRICE, 0, eq);
-            ObjectSetInteger(0, name, OBJPROP_COLOR, clrYellow);
-            ObjectSetInteger(0, name, OBJPROP_STYLE, STYLE_DASH);
-        }
-    }
-
-    static void DrawPOI(C_POI_Sensor *poiSensor) {
-        if(poiSensor == NULL) return;
-        int count = poiSensor.GetPOICount();
-        for(int i = 0; i < count; i++) {
-            SPOI poi = poiSensor.GetPOI(i);
-            string name = "POI_" + IntegerToString(poi.time);
-            if(!poi.isActive) { ObjectDelete(0, name); continue; }
-            if(ObjectFind(0, name) < 0) {
-                ObjectCreate(0, name, OBJ_RECTANGLE, 0, poi.time, poi.top, TimeCurrent() + PeriodSeconds(PERIOD_H1)*20, poi.bottom);
-                ObjectSetInteger(0, name, OBJPROP_COLOR, poi.isBullish ? clrDarkGreen : clrDarkRed);
-                ObjectSetInteger(0, name, OBJPROP_FILL, true);
-                ObjectSetInteger(0, name, OBJPROP_BACK, true);
+            if(ObjectFind(chart_id, name) < 0) {
+                ObjectCreate(chart_id, name, OBJ_HLINE, 0, 0, eq);
+                ObjectSetInteger(chart_id, name, OBJPROP_COLOR, clrYellow);
+                ObjectSetInteger(chart_id, name, OBJPROP_STYLE, STYLE_DASH);
+                ObjectSetInteger(chart_id, name, OBJPROP_HIDDEN, true);
             } else {
-                ObjectSetInteger(0, name, OBJPROP_TIME, 1, TimeCurrent() + PeriodSeconds(PERIOD_H1)*20);
+                ObjectSetDouble(chart_id, name, OBJPROP_PRICE, 0, eq);
             }
         }
     }
 
-    static void DrawOrderBlocks(C_POI_Sensor *poiSensor) {
-        DrawPOI(poiSensor);
+    static void DrawPOIs(long chart_id, C_POI_Sensor *poiSensor) {
+        if(poiSensor == NULL) return;
+        int count = poiSensor.GetPOICount();
+        for(int i = 0; i < count; i++) {
+            SPOI poi = poiSensor.GetPOI(i);
+            string name = "POI_" + IntegerToString((int)poi.time);
+            if(!poi.isActive) { ObjectDelete(chart_id, name); continue; }
+            if(ObjectFind(chart_id, name) < 0) {
+                ObjectCreate(chart_id, name, OBJ_RECTANGLE, 0, poi.time, poi.top, TimeCurrent() + PeriodSeconds(PERIOD_H1)*20, poi.bottom);
+                ObjectSetInteger(chart_id, name, OBJPROP_COLOR, poi.isBullish ? clrDarkGreen : clrDarkRed);
+                ObjectSetInteger(chart_id, name, OBJPROP_FILL, true);
+                ObjectSetInteger(chart_id, name, OBJPROP_BACK, true);
+                ObjectSetInteger(chart_id, name, OBJPROP_HIDDEN, true);
+            } else {
+                ObjectSetInteger(chart_id, name, OBJPROP_TIME, 1, TimeCurrent() + PeriodSeconds(PERIOD_H1)*20);
+            }
+        }
     }
 
     static void Clear(string prefix = "") {
-        ObjectsDeleteAll(0, prefix);
+        long chart_id = ChartFirst();
+        while(chart_id >= 0) {
+            ObjectsDeleteAll(chart_id, prefix);
+            chart_id = ChartNext(chart_id);
+        }
     }
 };
 #endif
