@@ -58,6 +58,15 @@ public:
     double              GetLastStrongHigh() { return m_lastStrongHigh; }
     double              GetLastWeakHigh()   { return m_lastWeakHigh; }
     double              GetLastWeakLow()    { return m_lastWeakLow; }
+
+    double GetDiscountThreshold() {
+        if(m_lastStrongLow == 0 || m_lastWeakHigh == 0) return 0;
+        return m_lastWeakHigh - ((m_lastWeakHigh - m_lastStrongLow) * (m_pullbackPct / 100.0));
+    }
+    double GetPremiumThreshold() {
+        if(m_lastStrongHigh == 0 || m_lastWeakLow == 0) return 0;
+        return m_lastWeakLow + ((m_lastStrongHigh - m_lastWeakLow) * (m_pullbackPct / 100.0));
+    }
 };
 
 C_MarketStructureSensor::C_MarketStructureSensor() : m_symbol(""), 
@@ -80,98 +89,70 @@ bool C_MarketStructureSensor::Init(string symbol, ENUM_TIMEFRAMES tf, double min
     return true;
 }
 
-void C_MarketStructureSensor::Update(CZigZagEngine *zigzag_engine)
-{
+void C_MarketStructureSensor::Update(CZigZagEngine *zigzag_engine) {
     if(zigzag_engine == NULL) return;
+    int total_zz_nodes = zigzag_engine.GetNodeCount();
+    int valid_nodes = total_zz_nodes - 1;
+    if(valid_nodes < 2) return;
     
-    // 1. Ingest nodes from your existing V2 ZigZag Engine
-    int total_zz_nodes = zigzag_engine.GetNodeCount(); 
-    if(total_zz_nodes < 3) return;
+    ArrayResize(m_nodes, valid_nodes);
     
-    ArrayResize(m_nodes, total_zz_nodes);
-    
-    // We reverse the array to evaluate from oldest (0) to newest (total-1)
-    for(int i = 0; i < total_zz_nodes; i++)
-    {
-        int chrono_idx = total_zz_nodes - 1 - i;
-        m_nodes[chrono_idx].time   = zigzag_engine.GetNodeTime(i); // Assuming these accessors exist
-        m_nodes[chrono_idx].price  = zigzag_engine.GetNodePrice(i);
-        m_nodes[chrono_idx].isHigh = zigzag_engine.IsNodeHigh(i);
-        m_nodes[chrono_idx].isStrong = false;
-        m_nodes[chrono_idx].isWeak   = false;
+    // START AT INDEX 1: Ignore node 0 because it repaints until locked
+    for(int i = 1; i < total_zz_nodes; i++) {
+        m_nodes[i-1].price = zigzag_engine.GetNodePrice(i);
+        m_nodes[i-1].time  = zigzag_engine.GetNodeTime(i);
+        m_nodes[i-1].isHigh = zigzag_engine.IsNodeHigh(i);
+        m_nodes[i-1].isStrong = false;
     }
-    
-    // 2. Apply V3 SMC logic ON TOP of the V2 ZigZag array
     EvaluateInstitutionalStrength();
 }
 
-void C_MarketStructureSensor::EvaluateInstitutionalStrength()
-{
+void C_MarketStructureSensor::EvaluateInstitutionalStrength() {
     int total = ArraySize(m_nodes);
+    m_lastStrongLow = 0; m_lastStrongHigh = 0;
+    m_lastWeakHigh = 0; m_lastWeakLow = 0;
     
-    for(int i = 2; i < total; i++)
-    {
-        if(m_nodes[i].isHigh)
-        {
-            if(m_nodes[i].price <= m_nodes[i-2].price) 
-            {
-                m_nodes[i].isWeak = true;
-                m_lastWeakHigh = m_nodes[i].price;
-            }
-            // Inside the isHigh block: Strong High (Broke previous low)
-            if(i >= 3 && m_nodes[i].price < m_nodes[i-3].price) 
-            {
-                m_nodes[i-1].isStrong = true; 
-                m_lastStrongHigh = m_nodes[i-1].price;
-                m_trendDirection = -1; // Trend is officially BEARISH
-            }
-        }
-        else 
-        {
-            if(m_nodes[i].price >= m_nodes[i-2].price)
-            {
-                m_nodes[i].isWeak = true;
-                m_lastWeakLow = m_nodes[i].price;
-            }
-            // Inside the !isHigh block: Strong Low (Broke previous high)
-            if(i >= 3 && m_nodes[i].price > m_nodes[i-3].price)
-            {
-                m_nodes[i-1].isStrong = true; 
-                m_lastStrongLow = m_nodes[i-1].price;
-                m_trendDirection = 1; // Trend is officially BULLISH
-            }
-        }
-    }
-    
-    double current_price = SymbolInfoDouble(m_symbol, SYMBOL_BID);
-    
-    // Chain Reaction Invalidation
-    if(m_lastStrongLow > 0 && current_price < m_lastStrongLow)
-    {
-        m_lastStrongLow = 0; 
-        m_lastWeakHigh = 0; 
-    }
-    
-    if(m_lastStrongHigh > 0 && current_price > m_lastStrongHigh)
-    {
-         m_lastStrongHigh = 0; 
-         m_lastWeakLow = 0; 
+    if(total < 3) return;
+
+    // 1. Find the absolute most recent locked High and Low (These are the active "Weak" targets)
+    for(int i = 0; i < total; i++) {
+        if(m_nodes[i].isHigh && m_lastWeakHigh == 0) m_lastWeakHigh = m_nodes[i].price;
+        if(!m_nodes[i].isHigh && m_lastWeakLow == 0) m_lastWeakLow = m_nodes[i].price;
+        if(m_lastWeakHigh != 0 && m_lastWeakLow != 0) break;
     }
 
+    // 2. Scan historical nodes for Break of Structure (BOS) to lock in Strong Pivots
+    for(int i = 2; i < total; i++) {
+        if(m_nodes[i].isHigh) {
+            // Bullish BOS: Newer High (i-2) breaks above Older High (i)
+            if(m_nodes[i-2].price > m_nodes[i].price) {
+                m_nodes[i-1].isStrong = true; 
+                if(m_lastStrongLow == 0) { // Only grab the most recent one
+                    m_lastStrongLow = m_nodes[i-1].price;
+                    m_trendDirection = 1; // BULLISH
+                }
+            }
+        } else {
+            // Bearish BOS: Newer Low (i-2) breaks below Older Low (i)
+            if(m_nodes[i-2].price < m_nodes[i].price) {
+                m_nodes[i-1].isStrong = true; 
+                if(m_lastStrongHigh == 0) {
+                    m_lastStrongHigh = m_nodes[i-1].price;
+                    m_trendDirection = -1; // BEARISH
+                }
+            }
+        }
+    }
+    
     // --- Dealing Range Fallback ---
-    if(m_lastStrongLow == 0 || m_lastWeakHigh == 0 || m_lastStrongHigh == 0 || m_lastWeakLow == 0)
-    {
+    if(m_lastStrongLow == 0 || m_lastStrongHigh == 0) {
         double max_high = 0, min_low = 99999999;
-        int max_nodes = ArraySize(m_nodes);
-        for(int k = 0; k < max_nodes; k++)
-        {
+        for(int k = 0; k < total; k++) {
             if(m_nodes[k].isHigh && m_nodes[k].price > max_high) max_high = m_nodes[k].price;
             if(!m_nodes[k].isHigh && m_nodes[k].price < min_low) min_low = m_nodes[k].price;
         }
         if(m_lastStrongLow == 0) m_lastStrongLow = min_low;
-        if(m_lastWeakHigh == 0) m_lastWeakHigh = max_high;
         if(m_lastStrongHigh == 0) m_lastStrongHigh = max_high;
-        if(m_lastWeakLow == 0) m_lastWeakLow = min_low;
     }
 }
 
@@ -179,6 +160,8 @@ bool C_MarketStructureSensor::PriceInDiscountZone(double current_price)
 {
     if(m_lastStrongLow == 0 || m_lastWeakHigh == 0) return false;
     double range = m_lastWeakHigh - m_lastStrongLow;
+    if(range <= 0) return false; // Safety check
+    
     double threshold = m_lastWeakHigh - (range * (m_pullbackPct / 100.0));
     return current_price <= threshold; 
 }
@@ -187,6 +170,8 @@ bool C_MarketStructureSensor::PriceInPremiumZone(double current_price)
 {
     if(m_lastStrongHigh == 0 || m_lastWeakLow == 0) return false;
     double range = m_lastStrongHigh - m_lastWeakLow;
+    if(range <= 0) return false; // Safety check
+    
     double threshold = m_lastWeakLow + (range * (m_pullbackPct / 100.0));
     return current_price >= threshold; 
 }

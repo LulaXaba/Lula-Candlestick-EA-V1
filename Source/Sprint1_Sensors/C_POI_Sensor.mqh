@@ -68,43 +68,19 @@ public:
         ArraySetAsSeries(time, true);
         
         // 1. Bullish POI (Order Block or Demand Base + Expansion)
-        if(close[1] > open[1] && (close[1] - open[1]) > (atr * 1.5) && close[2] <= open[2])
-        {
-            bool exists = false;
-            for(int k = 0; k < ArraySize(m_zones); k++)
-            {
-                if(m_zones[k].time == time[2]) { exists = true; break; }
-            }
-            if(!exists)
-            {
-                int s = ArraySize(m_zones);
-                ArrayResize(m_zones, s + 1);
-                m_zones[s].isActive  = true;
-                m_zones[s].isBullish = true;
-                m_zones[s].top       = MathMax(open[2], high[2]);
-                m_zones[s].bottom    = low[2];
-                m_zones[s].time      = time[2];
-            }
+        if(close[1] > open[1] && (close[1]-open[1]) > (atr * 1.0) && close[2] <= open[2]) {
+            int s = ArraySize(m_zones); ArrayResize(m_zones, s+1);
+            m_zones[s].isActive = true; m_zones[s].isBullish = true;
+            m_zones[s].top = MathMax(open[2], high[2]); m_zones[s].bottom = low[2];
+            m_zones[s].time = time[2];
         }
         
         // 2. Bearish POI (Order Block or Supply Base + Expansion)
-        if(close[1] < open[1] && (open[1] - close[1]) > (atr * 1.5) && close[2] >= open[2])
-        {
-            bool exists = false;
-            for(int k = 0; k < ArraySize(m_zones); k++)
-            {
-                if(m_zones[k].time == time[2]) { exists = true; break; }
-            }
-            if(!exists)
-            {
-                int s = ArraySize(m_zones);
-                ArrayResize(m_zones, s + 1);
-                m_zones[s].isActive  = true;
-                m_zones[s].isBullish = false;
-                m_zones[s].top       = high[2];
-                m_zones[s].bottom    = MathMin(open[2], low[2]);
-                m_zones[s].time      = time[2];
-            }
+        if(close[1] < open[1] && (open[1]-close[1]) > (atr * 1.0) && close[2] >= open[2]) {
+            int s = ArraySize(m_zones); ArrayResize(m_zones, s+1);
+            m_zones[s].isActive = true; m_zones[s].isBullish = false;
+            m_zones[s].top = high[2]; m_zones[s].bottom = MathMin(open[2], low[2]);
+            m_zones[s].time = time[2];
         }
         
         // Mitigation

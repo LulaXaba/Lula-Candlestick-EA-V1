@@ -103,6 +103,12 @@ STradeSetup C_DecisionTree::Evaluate(
     
     if(current_state == STATE_LTF_ARMED_LONG)
     {
+        static datetime lastPrint = 0;
+        if(TimeCurrent() - lastPrint >= 300) { 
+            PrintFormat("[V3 Trigger] M5 Armed. Bid: %.5f | Waiting for CHoCH above: %.5f", current_bid, ltf_structure.GetLastStrongHigh());
+            lastPrint = TimeCurrent();
+        }
+
         // 1. Did the LTF print a Bullish CHoCH? (Broke above the last LTF Strong High)
         double ltf_strong_high = ltf_structure.GetLastStrongHigh();
         bool ltf_bullish_choch = (ltf_strong_high > 0 && current_bid > ltf_strong_high);

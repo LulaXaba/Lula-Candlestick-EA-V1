@@ -36,7 +36,7 @@ public:
                 ObjectSetInteger(chart_id, name, OBJPROP_COLOR, clr);
                 ObjectSetInteger(chart_id, name, OBJPROP_WIDTH, width);
                 ObjectSetInteger(chart_id, name, OBJPROP_RAY_RIGHT, false);
-                ObjectSetInteger(chart_id, name, OBJPROP_BACK, true);
+                ObjectSetInteger(chart_id, name, OBJPROP_BACK, false);
                 ObjectSetInteger(chart_id, name, OBJPROP_HIDDEN, true); // Hide from list to reduce lag
             } else { 
                 ObjectSetInteger(chart_id, name, OBJPROP_TIME, 0, nodes[i].time); 
@@ -49,18 +49,27 @@ public:
 
     static void DrawPDRange(long chart_id, C_MarketStructureSensor *htf) {
         if(htf == NULL) return;
-        double sl = htf.GetLastStrongLow(), wh = htf.GetLastWeakHigh();
-        if(sl > 0 && wh > 0) {
-            double eq = sl + ((wh - sl) / 2.0);
-            string name = "HTF_Equilibrium_50";
+        
+        double discount_thresh = htf.GetDiscountThreshold();
+        if(discount_thresh > 0) {
+            string name = "HTF_Discount_Threshold";
             if(ObjectFind(chart_id, name) < 0) {
-                ObjectCreate(chart_id, name, OBJ_HLINE, 0, 0, eq);
-                ObjectSetInteger(chart_id, name, OBJPROP_COLOR, clrYellow);
+                ObjectCreate(chart_id, name, OBJ_HLINE, 0, 0, discount_thresh);
+                ObjectSetInteger(chart_id, name, OBJPROP_COLOR, clrLimeGreen);
                 ObjectSetInteger(chart_id, name, OBJPROP_STYLE, STYLE_DASH);
                 ObjectSetInteger(chart_id, name, OBJPROP_HIDDEN, true);
-            } else {
-                ObjectSetDouble(chart_id, name, OBJPROP_PRICE, 0, eq);
-            }
+            } else ObjectSetDouble(chart_id, name, OBJPROP_PRICE, 0, discount_thresh);
+        }
+
+        double premium_thresh = htf.GetPremiumThreshold();
+        if(premium_thresh > 0) {
+            string name = "HTF_Premium_Threshold";
+            if(ObjectFind(chart_id, name) < 0) {
+                ObjectCreate(chart_id, name, OBJ_HLINE, 0, 0, premium_thresh);
+                ObjectSetInteger(chart_id, name, OBJPROP_COLOR, clrDeepPink);
+                ObjectSetInteger(chart_id, name, OBJPROP_STYLE, STYLE_DASH);
+                ObjectSetInteger(chart_id, name, OBJPROP_HIDDEN, true);
+            } else ObjectSetDouble(chart_id, name, OBJPROP_PRICE, 0, premium_thresh);
         }
     }
 

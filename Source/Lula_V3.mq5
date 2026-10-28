@@ -139,55 +139,51 @@ void OnDeinit(const int reason)
 void OnTick()
 {
     // 1. Route through the Top-Down State Machine
-    // The state machine handles its own IsNewBar throttling for HTF/MTF
     ENUM_V3_STATE currentState = g_stateMachine.UpdateAndRoute(
-        g_structureHTF, 
-        g_poiSensorMTF, 
-        g_liquidityMTF, 
-        g_zzHTF, 
-        g_zzMTF
+        g_structureHTF, g_poiSensorMTF, g_liquidityMTF, g_zzHTF, g_zzMTF
     );
 
-    // 2. CPU Optimization: Only awaken LTF execution if in an Armed POI state
-    if(currentState != STATE_HTF_NARRATIVE && 
-       currentState != STATE_MTF_POI_SEARCH && 
-       currentState != STATE_STANDBY)
-    {
-        // 3. LTF Awakening: EA is sitting in an HTF PD Zone AND touching an MTF POI.
-        // Update the Lower Timeframe structure to scan for the sniper trigger (CHoCH).
-        g_zzLTF.Update();
-        g_structureLTF.Update(g_zzLTF);
-
-        // 4. Decision Matrix: Evaluate if the LTF trigger conditions are fully met.
-        STradeSetup setup = g_decisionTree.Evaluate(
-            currentState, 
-            g_structureHTF, 
-            g_structureLTF, 
-            g_poiSensorMTF, 
-            g_liquidityMTF
-        );
-
-        // 5. Execution: If the setup object returned a valid signal, fire the trades!
-        if(setup.direction != SIGNAL_NONE)
-        {
-            if(g_executor.ExecuteSplitTrade(setup))
-            {
-                PrintFormat("+++ TRADE SUCCESS: Lula V3 Executed %s at %.5f", setup.modelName, setup.entryPrice);
-                // Note: Sensors automatically mitigate/deactivate POIs and Sweeps on the next tick,
-                // naturally preventing duplicate trade entries.
-            }
-            else
-            {
-                Print("--- TRADE FAILED: Executor rejected the setup.");
-            }
-        }
-    }
-
-    // Render visuals if running in Visual Mode in Strategy Tester
+    // 2. ALWAYS Render visuals, even if the EA is about to go to sleep
     if(MQLInfoInteger(MQL_VISUAL_MODE) || inp_ShowVisuals)
     {
-        // Broadcasts drawing to ALL open tester charts (H4, H1, M5, etc.)
         C_VisualRenderer::RenderAll(g_zzHTF, g_zzMTF, g_structureHTF, g_poiSensorMTF);
+    }
+
+    // 3. CPU Optimization: If EA is not in an execution zone, go to sleep.
+    if(currentState == STATE_HTF_NARRATIVE || 
+       currentState == STATE_MTF_POI_SEARCH || 
+       currentState == STATE_STANDBY)
+    {
+        return; // Drops the tick instantly.
+    }
+    
+    // 4. LTF Awakening: EA is sitting in an HTF PD Zone AND touching an MTF POI.
+    // Update the Lower Timeframe structure to scan for the sniper trigger (CHoCH).
+    g_zzLTF.Update();
+    g_structureLTF.Update(g_zzLTF);
+
+    // 5. Decision Matrix: Evaluate if the LTF trigger conditions are fully met.
+    STradeSetup setup = g_decisionTree.Evaluate(
+        currentState, 
+        g_structureHTF, 
+        g_structureLTF, 
+        g_poiSensorMTF, 
+        g_liquidityMTF
+    );
+
+    // 6. Execution: If the setup object returned a valid signal, fire the trades!
+    if(setup.direction != SIGNAL_NONE)
+    {
+        if(g_executor.ExecuteSplitTrade(setup))
+        {
+            PrintFormat("+++ TRADE SUCCESS: Lula V3 Executed %s at %.5f", setup.modelName, setup.entryPrice);
+            // Note: Sensors automatically mitigate/deactivate POIs and Sweeps on the next tick,
+            // naturally preventing duplicate trade entries.
+        }
+        else
+        {
+            Print("--- TRADE FAILED: Executor rejected the setup.");
+        }
     }
 }
 //+------------------------------------------------------------------+
