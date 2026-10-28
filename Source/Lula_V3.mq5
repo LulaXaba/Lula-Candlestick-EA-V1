@@ -11,7 +11,7 @@
 //--- Core Engine Includes
 #include "Sprint1_Sensors/CZigZagEngine.mqh"
 #include "Sprint1_Sensors/C_MarketStructureSensor.mqh"
-#include "Sprint1_Sensors/C_OrderBlockSensor.mqh"
+#include "Sprint1_Sensors/C_POI_Sensor.mqh"
 #include "Sprint1_Sensors/C_LiquiditySensor.mqh"
 
 #include "Sprint3_State/CStateMachine.mqh"
@@ -26,9 +26,12 @@ input group "--- V3 Risk Management ---"
 input double            inp_RiskPercent   = 1.0;      // Risk per Trade (%)
 input ulong             inp_MagicNumber   = 777777;   // EA Magic Number
 
+input group "--- SMC Execution Parameters ---"
+input double            inp_MinPullbackPct = 30.0;    // Minimum Pullback % (e.g., 30 for aggressive trends)
+
 input group "--- Top-Down Timeframes ---"
 input ENUM_TIMEFRAMES   inp_HTF = PERIOD_H4;          // Macro Narrative (Trend)
-input ENUM_TIMEFRAMES   inp_MTF = PERIOD_M15;         // Point of Interest (OB/Liquidity)
+input ENUM_TIMEFRAMES   inp_MTF = PERIOD_H1;          // Point of Interest (OB/Liquidity)
 input ENUM_TIMEFRAMES   inp_LTF = PERIOD_M5;          // Sniper Trigger (CHoCH)
 
 input group "--- Visual Mode & Charting ---"
@@ -45,7 +48,7 @@ CZigZagEngine           *g_zzLTF;
 // Institutional SMC Sensors
 C_MarketStructureSensor *g_structureHTF;
 C_MarketStructureSensor *g_structureLTF;
-C_OrderBlockSensor      *g_obSensorMTF;
+C_POI_Sensor            *g_poiSensorMTF;
 C_LiquiditySensor       *g_liquidityMTF;
 
 // State & Execution Managers
@@ -73,12 +76,12 @@ int OnInit()
     // 2. Initialize SMC Sensors
     g_structureHTF = new C_MarketStructureSensor();
     g_structureLTF = new C_MarketStructureSensor();
-    g_obSensorMTF  = new C_OrderBlockSensor();
+    g_poiSensorMTF = new C_POI_Sensor();
     g_liquidityMTF = new C_LiquiditySensor();
     
-    g_structureHTF.Init(_Symbol);
-    g_structureLTF.Init(_Symbol);
-    g_obSensorMTF.Init(_Symbol, inp_MTF);
+    g_structureHTF.Init(_Symbol, inp_HTF, inp_MinPullbackPct);
+    g_structureLTF.Init(_Symbol, inp_LTF, inp_MinPullbackPct);
+    g_poiSensorMTF.Init(_Symbol, inp_MTF);
     g_liquidityMTF.Init(_Symbol, inp_MTF);
 
     // 3. Initialize State & Execution Layers
@@ -108,6 +111,7 @@ void OnDeinit(const int reason)
     {
         C_VisualRenderer::Clear("HTF_ZZ_");
         C_VisualRenderer::Clear("MTF_ZZ_");
+        C_VisualRenderer::Clear("POI_");
         C_VisualRenderer::Clear("OB_");
         C_VisualRenderer::Clear("HTF_Equilibrium_50");
     }
@@ -119,7 +123,7 @@ void OnDeinit(const int reason)
     
     if(CheckPointer(g_structureHTF)) delete g_structureHTF;
     if(CheckPointer(g_structureLTF)) delete g_structureLTF;
-    if(CheckPointer(g_obSensorMTF))  delete g_obSensorMTF;
+    if(CheckPointer(g_poiSensorMTF)) delete g_poiSensorMTF;
     if(CheckPointer(g_liquidityMTF)) delete g_liquidityMTF;
     
     if(CheckPointer(g_stateMachine)) delete g_stateMachine;
@@ -138,7 +142,7 @@ void OnTick()
     // The state machine handles its own IsNewBar throttling for HTF/MTF
     ENUM_V3_STATE currentState = g_stateMachine.UpdateAndRoute(
         g_structureHTF, 
-        g_obSensorMTF, 
+        g_poiSensorMTF, 
         g_liquidityMTF, 
         g_zzHTF, 
         g_zzMTF
@@ -159,7 +163,7 @@ void OnTick()
             currentState, 
             g_structureHTF, 
             g_structureLTF, 
-            g_obSensorMTF, 
+            g_poiSensorMTF, 
             g_liquidityMTF
         );
 
@@ -169,7 +173,7 @@ void OnTick()
             if(g_executor.ExecuteSplitTrade(setup))
             {
                 PrintFormat("+++ TRADE SUCCESS: Lula V3 Executed %s at %.5f", setup.modelName, setup.entryPrice);
-                // Note: Sensors automatically mitigate/deactivate OBs and Sweeps on the next tick,
+                // Note: Sensors automatically mitigate/deactivate POIs and Sweeps on the next tick,
                 // naturally preventing duplicate trade entries.
             }
             else
@@ -179,13 +183,11 @@ void OnTick()
         }
     }
 
-    // Render visuals if running in Visual Mode in Strategy Tester
     if(MQLInfoInteger(MQL_VISUAL_MODE) || inp_ShowVisuals)
     {
-        C_VisualRenderer::DrawZigZag(g_zzHTF, "HTF", clrBlue, 3);
-        C_VisualRenderer::DrawZigZag(g_zzMTF, "MTF", clrOrange, 1);
-        C_VisualRenderer::DrawPDRange(g_structureHTF);
-        C_VisualRenderer::DrawOrderBlocks(g_obSensorMTF);
+        C_VisualRenderer::DrawZigZag(g_zzHTF, "HTF", clrDodgerBlue, 3);
+        C_VisualRenderer::DrawZigZag(g_zzMTF, "MTF", clrDarkOrange, 1);
+        C_VisualRenderer::DrawPOI(g_poiSensorMTF);
         ChartRedraw(0);
     }
 }

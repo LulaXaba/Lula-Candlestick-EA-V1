@@ -6,7 +6,7 @@
 #define C_VISUALRENDERER_MQH
 
 #include "../Sprint1_Sensors/CZigZagEngine.mqh"
-#include "../Sprint1_Sensors/C_OrderBlockSensor.mqh"
+#include "../Sprint1_Sensors/C_POI_Sensor.mqh"
 #include "../Sprint1_Sensors/C_MarketStructureSensor.mqh"
 
 class C_VisualRenderer {
@@ -47,22 +47,26 @@ public:
         }
     }
 
-    static void DrawOrderBlocks(C_OrderBlockSensor *obSensor) {
-        if(obSensor == NULL) return;
-        int count = obSensor.GetBlockCount();
+    static void DrawPOI(C_POI_Sensor *poiSensor) {
+        if(poiSensor == NULL) return;
+        int count = poiSensor.GetPOICount();
         for(int i = 0; i < count; i++) {
-            SOrderBlock ob = obSensor.GetBlock(i);
-            string name = "OB_" + IntegerToString(ob.time);
-            if(!ob.isActive) { ObjectDelete(0, name); continue; }
+            SPOI poi = poiSensor.GetPOI(i);
+            string name = "POI_" + IntegerToString(poi.time);
+            if(!poi.isActive) { ObjectDelete(0, name); continue; }
             if(ObjectFind(0, name) < 0) {
-                ObjectCreate(0, name, OBJ_RECTANGLE, 0, ob.time, ob.top, TimeCurrent() + PeriodSeconds(PERIOD_H1)*20, ob.bottom);
-                ObjectSetInteger(0, name, OBJPROP_COLOR, ob.isBullish ? clrDarkGreen : clrDarkRed);
+                ObjectCreate(0, name, OBJ_RECTANGLE, 0, poi.time, poi.top, TimeCurrent() + PeriodSeconds(PERIOD_H1)*20, poi.bottom);
+                ObjectSetInteger(0, name, OBJPROP_COLOR, poi.isBullish ? clrDarkGreen : clrDarkRed);
                 ObjectSetInteger(0, name, OBJPROP_FILL, true);
                 ObjectSetInteger(0, name, OBJPROP_BACK, true);
             } else {
                 ObjectSetInteger(0, name, OBJPROP_TIME, 1, TimeCurrent() + PeriodSeconds(PERIOD_H1)*20);
             }
         }
+    }
+
+    static void DrawOrderBlocks(C_POI_Sensor *poiSensor) {
+        DrawPOI(poiSensor);
     }
 
     static void Clear(string prefix = "") {

@@ -34,6 +34,9 @@ private:
     double              m_lastWeakHigh;
     double              m_lastStrongHigh;
     double              m_lastWeakLow;
+    int                 m_trendDirection; // 1 = Bullish, -1 = Bearish, 0 = Ranging
+    ENUM_TIMEFRAMES     m_tf;
+    double              m_pullbackPct;    // Minimum pullback percentage (e.g. 30.0)
     
     void                EvaluateInstitutionalStrength();
 
@@ -41,7 +44,7 @@ public:
                         C_MarketStructureSensor();
                        ~C_MarketStructureSensor();
 
-    bool                Init(string symbol);
+    bool                Init(string symbol, ENUM_TIMEFRAMES tf = PERIOD_CURRENT, double min_pullback = 30.0);
     
     // Feed the perfected V2 ZigZag engine into the V3 Sensor
     void                Update(CZigZagEngine *zigzag_engine);
@@ -50,6 +53,7 @@ public:
     bool                PriceInPremiumZone(double current_price);
     ENUM_MACRO_PHASE    GetMacroPhase();
     
+    int                 GetTrendDirection() { return m_trendDirection; }
     double              GetLastStrongLow()  { return m_lastStrongLow; }
     double              GetLastStrongHigh() { return m_lastStrongHigh; }
     double              GetLastWeakHigh()   { return m_lastWeakHigh; }
@@ -58,15 +62,21 @@ public:
 
 C_MarketStructureSensor::C_MarketStructureSensor() : m_symbol(""), 
                                                      m_lastStrongLow(0), m_lastWeakHigh(0), 
-                                                     m_lastStrongHigh(0), m_lastWeakLow(0) {}
+                                                     m_lastStrongHigh(0), m_lastWeakLow(0),
+                                                     m_trendDirection(0), m_tf(PERIOD_CURRENT),
+                                                     m_pullbackPct(30.0) {}
 
 C_MarketStructureSensor::~C_MarketStructureSensor() {}
 
-bool C_MarketStructureSensor::Init(string symbol)
+bool C_MarketStructureSensor::Init(string symbol, ENUM_TIMEFRAMES tf, double min_pullback)
 {
     m_symbol = symbol;
+    m_tf = tf;
+    m_pullbackPct = min_pullback;
+    m_trendDirection = 0;
     ArrayResize(m_nodes, 0);
-    PrintFormat("[V3 Sensor] Market Structure Initialized: %s", m_symbol);
+    PrintFormat("[V3 Sensor] Market Structure Initialized: %s (TF: %s, Pullback: %.1f%%)", 
+                m_symbol, EnumToString(m_tf), m_pullbackPct);
     return true;
 }
 
@@ -108,10 +118,12 @@ void C_MarketStructureSensor::EvaluateInstitutionalStrength()
                 m_nodes[i].isWeak = true;
                 m_lastWeakHigh = m_nodes[i].price;
             }
+            // Inside the isHigh block: Strong High (Broke previous low)
             if(i >= 3 && m_nodes[i].price < m_nodes[i-3].price) 
             {
                 m_nodes[i-1].isStrong = true; 
                 m_lastStrongHigh = m_nodes[i-1].price;
+                m_trendDirection = -1; // Trend is officially BEARISH
             }
         }
         else 
@@ -121,10 +133,12 @@ void C_MarketStructureSensor::EvaluateInstitutionalStrength()
                 m_nodes[i].isWeak = true;
                 m_lastWeakLow = m_nodes[i].price;
             }
+            // Inside the !isHigh block: Strong Low (Broke previous high)
             if(i >= 3 && m_nodes[i].price > m_nodes[i-3].price)
             {
                 m_nodes[i-1].isStrong = true; 
                 m_lastStrongLow = m_nodes[i-1].price;
+                m_trendDirection = 1; // Trend is officially BULLISH
             }
         }
     }
@@ -145,11 +159,11 @@ void C_MarketStructureSensor::EvaluateInstitutionalStrength()
     }
 
     // --- Dealing Range Fallback ---
-    // If strict Strong/Weak nodes haven't confirmed, use the major swing extremes
     if(m_lastStrongLow == 0 || m_lastWeakHigh == 0 || m_lastStrongHigh == 0 || m_lastWeakLow == 0)
     {
         double max_high = 0, min_low = 99999999;
-        for(int k = 0; k < total; k++)
+        int max_nodes = ArraySize(m_nodes);
+        for(int k = 0; k < max_nodes; k++)
         {
             if(m_nodes[k].isHigh && m_nodes[k].price > max_high) max_high = m_nodes[k].price;
             if(!m_nodes[k].isHigh && m_nodes[k].price < min_low) min_low = m_nodes[k].price;
@@ -164,15 +178,17 @@ void C_MarketStructureSensor::EvaluateInstitutionalStrength()
 bool C_MarketStructureSensor::PriceInDiscountZone(double current_price)
 {
     if(m_lastStrongLow == 0 || m_lastWeakHigh == 0) return false;
-    double equilibrium = m_lastStrongLow + ((m_lastWeakHigh - m_lastStrongLow) / 2.0);
-    return current_price <= equilibrium; 
+    double range = m_lastWeakHigh - m_lastStrongLow;
+    double threshold = m_lastWeakHigh - (range * (m_pullbackPct / 100.0));
+    return current_price <= threshold; 
 }
 
 bool C_MarketStructureSensor::PriceInPremiumZone(double current_price)
 {
     if(m_lastStrongHigh == 0 || m_lastWeakLow == 0) return false;
-    double equilibrium = m_lastWeakLow + ((m_lastStrongHigh - m_lastWeakLow) / 2.0);
-    return current_price >= equilibrium; 
+    double range = m_lastStrongHigh - m_lastWeakLow;
+    double threshold = m_lastWeakLow + (range * (m_pullbackPct / 100.0));
+    return current_price >= threshold; 
 }
 
 ENUM_MACRO_PHASE C_MarketStructureSensor::GetMacroPhase()

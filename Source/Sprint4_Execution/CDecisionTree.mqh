@@ -7,7 +7,7 @@
 
 #include "../Sprint3_State/CStateMachine.mqh"
 #include "../Sprint1_Sensors/C_MarketStructureSensor.mqh"
-#include "../Sprint1_Sensors/C_OrderBlockSensor.mqh"
+#include "../Sprint1_Sensors/C_POI_Sensor.mqh"
 #include "../Sprint1_Sensors/C_LiquiditySensor.mqh"
 
 enum ENUM_TRADE_SIGNAL
@@ -25,7 +25,7 @@ struct STradeSetup
     double            stopLoss;
     double            tpLocal;   // Ticket 1: MTF Target (Day Trade)
     double            tpMacro;   // Ticket 2: HTF Target (The Runner)
-    string            modelName; // "OB_Continuation" or "Liquidity_Sweep"
+    string            modelName; // "POI_Continuation" or "Liquidity_Sweep"
 };
 
 class C_DecisionTree
@@ -47,7 +47,7 @@ public:
                             ENUM_V3_STATE            current_state,
                             C_MarketStructureSensor  *htf_structure,
                             C_MarketStructureSensor  *ltf_structure, // To detect the LTF CHoCH
-                            C_OrderBlockSensor       *mtf_ob_sensor,
+                            C_POI_Sensor             *mtf_poi_sensor,
                             C_LiquiditySensor        *mtf_liquidity
                         );
 };
@@ -80,7 +80,7 @@ STradeSetup C_DecisionTree::Evaluate(
     ENUM_V3_STATE            current_state,
     C_MarketStructureSensor  *htf_structure,
     C_MarketStructureSensor  *ltf_structure,
-    C_OrderBlockSensor       *mtf_ob_sensor,
+    C_POI_Sensor             *mtf_poi_sensor,
     C_LiquiditySensor        *mtf_liquidity)
 {
     STradeSetup setup;
@@ -90,7 +90,7 @@ STradeSetup C_DecisionTree::Evaluate(
     if(current_state != STATE_LTF_ARMED_LONG && current_state != STATE_LTF_ARMED_SHORT)
         return setup; // EA is sleeping/searching. Do nothing.
 
-    if(htf_structure == NULL || ltf_structure == NULL || mtf_ob_sensor == NULL || mtf_liquidity == NULL)
+    if(htf_structure == NULL || ltf_structure == NULL || mtf_poi_sensor == NULL || mtf_liquidity == NULL)
         return setup;
 
     double current_bid = SymbolInfoDouble(m_symbol, SYMBOL_BID);
@@ -112,13 +112,13 @@ STradeSetup C_DecisionTree::Evaluate(
         // 2. Determine Which Model Fired
         double dummy_sl = 0.0, sweep_level = 0.0;
         
-        if(mtf_ob_sensor.IsInsideBullishOB(current_bid, dummy_sl))
+        if(mtf_poi_sensor.IsInsideBullishPOI(current_bid, dummy_sl))
         {
             // MODEL 1: Structural Continuation
             setup.direction = SIGNAL_LONG;
             setup.entryPrice = current_ask;
-            setup.stopLoss   = dummy_sl - buffer; // Distal line of OB minus ATR buffer
-            setup.modelName  = "OB_Continuation_Long";
+            setup.stopLoss   = dummy_sl - buffer; // Distal line of POI minus ATR buffer
+            setup.modelName  = "POI_Continuation_Long";
         }
         else if(mtf_liquidity.IsEQLSwept(sweep_level))
         {
@@ -157,13 +157,13 @@ STradeSetup C_DecisionTree::Evaluate(
         // 2. Determine Which Model Fired
         double dummy_sl = 0.0, sweep_level = 0.0;
         
-        if(mtf_ob_sensor.IsInsideBearishOB(current_bid, dummy_sl))
+        if(mtf_poi_sensor.IsInsideBearishPOI(current_bid, dummy_sl))
         {
             // MODEL 1: Structural Continuation
             setup.direction = SIGNAL_SHORT;
             setup.entryPrice = current_bid;
-            setup.stopLoss   = dummy_sl + buffer; // Distal line of OB plus ATR buffer
-            setup.modelName  = "OB_Continuation_Short";
+            setup.stopLoss   = dummy_sl + buffer; // Distal line of POI plus ATR buffer
+            setup.modelName  = "POI_Continuation_Short";
         }
         else if(mtf_liquidity.IsEQHSwept(sweep_level))
         {

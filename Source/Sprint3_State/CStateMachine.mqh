@@ -6,7 +6,7 @@
 #define C_STATEMACHINE_MQH
 
 #include "../Sprint1_Sensors/C_MarketStructureSensor.mqh"
-#include "../Sprint1_Sensors/C_OrderBlockSensor.mqh"
+#include "../Sprint1_Sensors/C_POI_Sensor.mqh"
 #include "../Sprint1_Sensors/C_LiquiditySensor.mqh"
 #include "../Sprint1_Sensors/CZigZagEngine.mqh"
 
@@ -44,7 +44,7 @@ public:
     // The core traffic controller. Returns the active state to the main EA.
     ENUM_V3_STATE       UpdateAndRoute(
                             C_MarketStructureSensor *htf_structure,
-                            C_OrderBlockSensor      *mtf_ob_sensor,
+                            C_POI_Sensor            *mtf_poi_sensor,
                             C_LiquiditySensor       *mtf_liquidity,
                             CZigZagEngine           *htf_zigzag,
                             CZigZagEngine           *mtf_zigzag
@@ -84,7 +84,7 @@ bool C_StateMachine::IsNewBar(ENUM_TIMEFRAMES tf, datetime &last_time)
 
 ENUM_V3_STATE C_StateMachine::UpdateAndRoute(
                             C_MarketStructureSensor *htf_structure,
-                            C_OrderBlockSensor      *mtf_ob_sensor,
+                            C_POI_Sensor            *mtf_poi_sensor,
                             C_LiquiditySensor       *mtf_liquidity,
                             CZigZagEngine           *htf_zigzag,
                             CZigZagEngine           *mtf_zigzag)
@@ -104,8 +104,8 @@ ENUM_V3_STATE C_StateMachine::UpdateAndRoute(
     {
         if(mtf_zigzag != NULL)
             mtf_zigzag.Update();
-        if(mtf_ob_sensor != NULL)
-            mtf_ob_sensor.Update(); // Evaluates mitigation
+        if(mtf_poi_sensor != NULL)
+            mtf_poi_sensor.Update(); // Evaluates mitigation
         if(mtf_liquidity != NULL && mtf_zigzag != NULL)
             mtf_liquidity.Update(mtf_zigzag); // Scans for equal highs/lows
     }
@@ -122,7 +122,9 @@ ENUM_V3_STATE C_StateMachine::UpdateAndRoute(
 
     static datetime lastPrint = 0;
     if(current_price != 0 && TimeCurrent() - lastPrint >= 3600) {
-        PrintFormat("[V3 State] Price: %.5f | HTF Discount: %s | HTF Premium: %s", current_price, inDiscount?"YES":"NO", inPremium?"YES":"NO");
+        int trend = (htf_structure != NULL) ? htf_structure.GetTrendDirection() : 0;
+        string trendStr = (trend == 1) ? "BULLISH" : (trend == -1 ? "BEARISH" : "RANGING");
+        PrintFormat("[V3 State] Price: %.5f | Trend: %s | HTF Discount: %s | HTF Premium: %s", current_price, trendStr, inDiscount?"YES":"NO", inPremium?"YES":"NO");
         lastPrint = TimeCurrent();
     }
 
@@ -136,35 +138,31 @@ ENUM_V3_STATE C_StateMachine::UpdateAndRoute(
     // 3. POI Proximity & Ghost Zone Prevention
     // Ensure we are inside a valid MTF POI before waking up the LTF
     
-    // --- LONG EVALUATION (Model 1 & Model 2) ---
-    if(inDiscount)
+    // --- LONG EVALUATION (Only allowed if H4 Macro is BULLISH) ---
+    if(inDiscount && htf_structure != NULL && htf_structure.GetTrendDirection() == 1)
     {
-        bool inBullishOB = (mtf_ob_sensor != NULL) && mtf_ob_sensor.IsInsideBullishOB(current_price, dummy_sl);
-        bool eqlSwept    = (mtf_liquidity != NULL) && mtf_liquidity.IsEQLSwept(sweep_level);
+        bool inBullishPOI = (mtf_poi_sensor != NULL) && mtf_poi_sensor.IsInsideBullishPOI(current_price, dummy_sl);
+        bool eqlSwept     = (mtf_liquidity != NULL) && mtf_liquidity.IsEQLSwept(sweep_level);
         
-        if(inBullishOB || eqlSwept)
+        if(inBullishPOI || eqlSwept)
         {
-            // Price is in HTF Discount AND tapping an MTF POI. Wake up the LTF!
             if(m_currentState != STATE_LTF_ARMED_LONG)
-                PrintFormat("[V3 State Machine] HTF Discount POI Tapped. Arming LTF for Long Triggers.");
-                
+                PrintFormat("[V3 State Machine] H4 BULLISH Trend + H1 Pullback Tapped. Arming M5 for Long Triggers.");
             m_currentState = STATE_LTF_ARMED_LONG;
             return m_currentState;
         }
     }
     
-    // --- SHORT EVALUATION (Model 1 & Model 2) ---
-    if(inPremium)
+    // --- SHORT EVALUATION (Only allowed if H4 Macro is BEARISH) ---
+    if(inPremium && htf_structure != NULL && htf_structure.GetTrendDirection() == -1)
     {
-        bool inBearishOB = (mtf_ob_sensor != NULL) && mtf_ob_sensor.IsInsideBearishOB(current_price, dummy_sl);
-        bool eqhSwept    = (mtf_liquidity != NULL) && mtf_liquidity.IsEQHSwept(sweep_level);
+        bool inBearishPOI = (mtf_poi_sensor != NULL) && mtf_poi_sensor.IsInsideBearishPOI(current_price, dummy_sl);
+        bool eqhSwept     = (mtf_liquidity != NULL) && mtf_liquidity.IsEQHSwept(sweep_level);
         
-        if(inBearishOB || eqhSwept)
+        if(inBearishPOI || eqhSwept)
         {
-            // Price is in HTF Premium AND tapping an MTF POI. Wake up the LTF!
             if(m_currentState != STATE_LTF_ARMED_SHORT)
-                PrintFormat("[V3 State Machine] HTF Premium POI Tapped. Arming LTF for Short Triggers.");
-                
+                PrintFormat("[V3 State Machine] H4 BEARISH Trend + H1 Pullback Tapped. Arming M5 for Short Triggers.");
             m_currentState = STATE_LTF_ARMED_SHORT;
             return m_currentState;
         }
