@@ -311,8 +311,27 @@ double C_TradeExecutor::CalculateLotSize(double entry_price, double stop_loss)
     
     // Total risk value for 1.0 lot
     double risk_per_lot = sl_ticks * tick_value;
-    
     double lot_size = risk_money / risk_per_lot;
+    
+    // --- MARGIN SAFETY LIMITER ---
+    // Calculate the margin required for 1.0 lot
+    double margin_required = 0;
+    if(!OrderCalcMargin(ORDER_TYPE_BUY, m_symbol, 1.0, entry_price, margin_required) || margin_required == 0) {
+        // Fallback estimate if OrderCalcMargin fails (e.g., in some Synthetics environments)
+        margin_required = (entry_price * 1.0) / AccountInfoInteger(ACCOUNT_LEVERAGE);
+    }
+    
+    // Check how much margin this lot size will eat up
+    double total_margin = lot_size * margin_required;
+    double free_margin = AccountInfoDouble(ACCOUNT_MARGIN_FREE);
+    
+    // If the required margin exceeds 80% of our available free margin, shrink the lot size
+    double max_allowed_margin = free_margin * 0.80;
+    if(total_margin > max_allowed_margin && margin_required > 0) {
+        lot_size = max_allowed_margin / margin_required;
+        PrintFormat("[V3 Executor] Margin Warning: Reducing Lot Size to %.2f to fit account constraints.", lot_size);
+    }
+    // -----------------------------
     
     // Clamp to broker limits
     double min_lot  = SymbolInfoDouble(m_symbol, SYMBOL_VOLUME_MIN);
