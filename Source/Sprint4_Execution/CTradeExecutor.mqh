@@ -300,28 +300,30 @@ double C_TradeExecutor::CalculateLotSize(double entry_price, double stop_loss)
     double balance = AccountInfoDouble(ACCOUNT_BALANCE);
     double risk_money = balance * (m_riskPercent / 100.0);
     
-    double tick_size  = SymbolInfoDouble(m_symbol, SYMBOL_TRADE_TICK_SIZE);
-    double tick_value = SymbolInfoDouble(m_symbol, SYMBOL_TRADE_TICK_VALUE);
+    // --- BULLETPROOF SYNTHETICS RISK MATH ---
+    double simulated_loss = 0;
+    ENUM_ORDER_TYPE order_type = (entry_price > stop_loss) ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
     
-    if(tick_size == 0 || tick_value == 0) return 0.0;
+    // Ask MT5: "If I open 1.0 lot at Entry and it hits my SL, exactly how much money do I lose?"
+    if(!OrderCalcProfit(order_type, m_symbol, 1.0, entry_price, stop_loss, simulated_loss) || simulated_loss >= 0)
+    {
+        Print("[V3 Executor] FATAL: OrderCalcProfit failed to calculate risk. Aborting.");
+        return 0.0;
+    }
     
-    // Risk in ticks
-    double sl_ticks = MathAbs(entry_price - stop_loss) / tick_size;
-    if(sl_ticks <= 0) return 0.0;
+    // Simulated loss is negative, so we use MathAbs to get the risk per 1 lot
+    double risk_per_lot = MathAbs(simulated_loss);
+    if(risk_per_lot == 0) return 0.0;
     
-    // Total risk value for 1.0 lot
-    double risk_per_lot = sl_ticks * tick_value;
     double lot_size = risk_money / risk_per_lot;
     
     // --- MARGIN SAFETY LIMITER ---
     double margin_required = 0;
-    if(!OrderCalcMargin(ORDER_TYPE_BUY, m_symbol, 1.0, entry_price, margin_required) || margin_required <= 0) {
+    if(!OrderCalcMargin(order_type, m_symbol, 1.0, entry_price, margin_required) || margin_required <= 0) {
         margin_required = entry_price / AccountInfoInteger(ACCOUNT_LEVERAGE);
     }
     
     double free_margin = AccountInfoDouble(ACCOUNT_MARGIN_FREE);
-    
-    // SAFETY: If free margin is negative or zero, we cannot trade.
     if(free_margin <= 0) {
         PrintFormat("[V3 Executor] FATAL: Free Margin is %.2f. Cannot execute trade.", free_margin);
         return 0.0;
@@ -332,7 +334,7 @@ double C_TradeExecutor::CalculateLotSize(double entry_price, double stop_loss)
     
     if(total_margin > max_allowed_margin) {
         lot_size = max_allowed_margin / margin_required;
-        PrintFormat("[V3 Executor] Margin Warning: Reducing Lot Size to %.2f to fit account.", lot_size);
+        PrintFormat("[V3 Executor] Margin Warning: Reducing Lot Size to %.2f to fit account constraints.", lot_size);
     }
     
     // Clamp to broker limits
@@ -344,8 +346,7 @@ double C_TradeExecutor::CalculateLotSize(double entry_price, double stop_loss)
     
     // FINAL AFFORDABILITY CHECK
     if(lot_size < min_lot) {
-        // We can't afford the broker's absolute minimum size. Abort trade.
-        PrintFormat("[V3 Executor] FATAL: Account cannot afford the broker minimum lot size of %.2f.", min_lot);
+        PrintFormat("[V3 Executor] FATAL: 1%% risk requires %.2f lots, which is below broker minimum of %.2f.", lot_size, min_lot);
         return 0.0;
     }
     if(lot_size > max_lot) lot_size = max_lot;
