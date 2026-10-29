@@ -314,24 +314,26 @@ double C_TradeExecutor::CalculateLotSize(double entry_price, double stop_loss)
     double lot_size = risk_money / risk_per_lot;
     
     // --- MARGIN SAFETY LIMITER ---
-    // Calculate the margin required for 1.0 lot
     double margin_required = 0;
-    if(!OrderCalcMargin(ORDER_TYPE_BUY, m_symbol, 1.0, entry_price, margin_required) || margin_required == 0) {
-        // Fallback estimate if OrderCalcMargin fails (e.g., in some Synthetics environments)
-        margin_required = (entry_price * 1.0) / AccountInfoInteger(ACCOUNT_LEVERAGE);
+    if(!OrderCalcMargin(ORDER_TYPE_BUY, m_symbol, 1.0, entry_price, margin_required) || margin_required <= 0) {
+        margin_required = entry_price / AccountInfoInteger(ACCOUNT_LEVERAGE);
     }
     
-    // Check how much margin this lot size will eat up
-    double total_margin = lot_size * margin_required;
     double free_margin = AccountInfoDouble(ACCOUNT_MARGIN_FREE);
     
-    // If the required margin exceeds 80% of our available free margin, shrink the lot size
-    double max_allowed_margin = free_margin * 0.80;
-    if(total_margin > max_allowed_margin && margin_required > 0) {
-        lot_size = max_allowed_margin / margin_required;
-        PrintFormat("[V3 Executor] Margin Warning: Reducing Lot Size to %.2f to fit account constraints.", lot_size);
+    // SAFETY: If free margin is negative or zero, we cannot trade.
+    if(free_margin <= 0) {
+        PrintFormat("[V3 Executor] FATAL: Free Margin is %.2f. Cannot execute trade.", free_margin);
+        return 0.0;
     }
-    // -----------------------------
+    
+    double max_allowed_margin = free_margin * 0.80;
+    double total_margin = lot_size * margin_required;
+    
+    if(total_margin > max_allowed_margin) {
+        lot_size = max_allowed_margin / margin_required;
+        PrintFormat("[V3 Executor] Margin Warning: Reducing Lot Size to %.2f to fit account.", lot_size);
+    }
     
     // Clamp to broker limits
     double min_lot  = SymbolInfoDouble(m_symbol, SYMBOL_VOLUME_MIN);
@@ -339,7 +341,13 @@ double C_TradeExecutor::CalculateLotSize(double entry_price, double stop_loss)
     double step_lot = SymbolInfoDouble(m_symbol, SYMBOL_VOLUME_STEP);
     
     lot_size = MathFloor(lot_size / step_lot) * step_lot;
-    if(lot_size < min_lot) lot_size = min_lot;
+    
+    // FINAL AFFORDABILITY CHECK
+    if(lot_size < min_lot) {
+        // We can't afford the broker's absolute minimum size. Abort trade.
+        PrintFormat("[V3 Executor] FATAL: Account cannot afford the broker minimum lot size of %.2f.", min_lot);
+        return 0.0;
+    }
     if(lot_size > max_lot) lot_size = max_lot;
     
     return lot_size;
