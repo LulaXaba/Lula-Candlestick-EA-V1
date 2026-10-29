@@ -300,25 +300,43 @@ double C_TradeExecutor::CalculateLotSize(double entry_price, double stop_loss)
     double balance = AccountInfoDouble(ACCOUNT_BALANCE);
     double risk_money = balance * (m_riskPercent / 100.0);
     
-    // --- BULLETPROOF SYNTHETICS RISK MATH ---
-    double simulated_loss = 0;
-    ENUM_ORDER_TYPE order_type = (entry_price > stop_loss) ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
+    // Calculate the physical distance in points
+    double point_distance = MathAbs(entry_price - stop_loss);
+    if(point_distance <= 0) return 0.0;
     
-    // Ask MT5: "If I open 1.0 lot at Entry and it hits my SL, exactly how much money do I lose?"
-    if(!OrderCalcProfit(order_type, m_symbol, 1.0, entry_price, stop_loss, simulated_loss) || simulated_loss >= 0)
-    {
-        Print("[V3 Executor] FATAL: OrderCalcProfit failed to calculate risk. Aborting.");
-        return 0.0;
+    double tick_value = SymbolInfoDouble(m_symbol, SYMBOL_TRADE_TICK_VALUE);
+    double tick_size  = SymbolInfoDouble(m_symbol, SYMBOL_TRADE_TICK_SIZE);
+    double risk_per_lot = 0;
+    
+    // --- THE UNIVERSAL MARKET FILTER ---
+    // Check if the current chart is a Deriv Synthetic Index
+    bool isSynthetic = (StringFind(m_symbol, "Boom") >= 0 || 
+                        StringFind(m_symbol, "Crash") >= 0 || 
+                        StringFind(m_symbol, "Volatility") >= 0 || 
+                        StringFind(m_symbol, "VIX") >= 0 ||
+                        StringFind(m_symbol, "Step") >= 0);
+                        
+    if(isSynthetic) {
+        // SYNTHETICS: Bypass broken Deriv tick data. Assume 1 lot = $1 per 1.0 point move.
+        risk_per_lot = point_distance; 
+    } else {
+        // MAJOR FOREX: Trust MT5's standard forex tick math
+        if(tick_size > 0 && tick_value > 0) {
+            double ticks = point_distance / tick_size;
+            risk_per_lot = ticks * tick_value;
+        } else {
+            risk_per_lot = point_distance; // Absolute failsafe
+        }
     }
+    // -----------------------------------
     
-    // Simulated loss is negative, so we use MathAbs to get the risk per 1 lot
-    double risk_per_lot = MathAbs(simulated_loss);
-    if(risk_per_lot == 0) return 0.0;
-    
+    if(risk_per_lot <= 0) return 0.0; 
     double lot_size = risk_money / risk_per_lot;
     
     // --- MARGIN SAFETY LIMITER ---
     double margin_required = 0;
+    ENUM_ORDER_TYPE order_type = (entry_price > stop_loss) ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
+    
     if(!OrderCalcMargin(order_type, m_symbol, 1.0, entry_price, margin_required) || margin_required <= 0) {
         margin_required = entry_price / AccountInfoInteger(ACCOUNT_LEVERAGE);
     }
