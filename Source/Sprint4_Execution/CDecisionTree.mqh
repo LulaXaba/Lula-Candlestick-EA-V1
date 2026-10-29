@@ -139,10 +139,16 @@ STradeSetup C_DecisionTree::Evaluate(
         if(setup.direction == SIGNAL_LONG)
         {
             // Profit Maximizer Targets
-            setup.tpLocal = htf_structure.GetLastWeakHigh(); // Ticket 1 targets the immediate Weak High
-            setup.tpMacro = setup.tpLocal + (setup.tpLocal - setup.entryPrice); // Ticket 2 targets an extended 1:1 runner
+            setup.tpLocal = htf_structure.GetLastWeakHigh(); 
             
-            PrintFormat("[V3 Execution] %s Triggered! Entry: %.5f | SL: %.5f", setup.modelName, setup.entryPrice, setup.stopLoss);
+            // SAFETY NET: If the HTF Weak High is somehow below the entry price, fall back to 1:2 R:R
+            if(setup.tpLocal <= setup.entryPrice) {
+                double risk_points = setup.entryPrice - setup.stopLoss;
+                setup.tpLocal = setup.entryPrice + (risk_points * 2.0);
+            }
+            setup.tpMacro = setup.tpLocal + (setup.tpLocal - setup.entryPrice); 
+            
+            PrintFormat("[V3 Execution] %s Triggered! Entry: %.5f | SL: %.5f | TP: %.5f", setup.modelName, setup.entryPrice, setup.stopLoss, setup.tpLocal);
         }
     }
     else if(current_state == STATE_LTF_ARMED_SHORT)
@@ -183,10 +189,16 @@ STradeSetup C_DecisionTree::Evaluate(
         if(setup.direction == SIGNAL_SHORT)
         {
             // Profit Maximizer Targets
-            setup.tpLocal = htf_structure.GetLastWeakLow(); // Ticket 1 targets the immediate Weak Low
-            setup.tpMacro = setup.tpLocal - (setup.entryPrice - setup.tpLocal); // Ticket 2 targets an extended runner
+            setup.tpLocal = htf_structure.GetLastWeakLow(); 
             
-            PrintFormat("[V3 Execution] %s Triggered! Entry: %.5f | SL: %.5f", setup.modelName, setup.entryPrice, setup.stopLoss);
+            // SAFETY NET: If the HTF Weak Low is somehow above the entry price, fall back to 1:2 R:R
+            if(setup.tpLocal >= setup.entryPrice || setup.tpLocal == 0) {
+                double risk_points = setup.stopLoss - setup.entryPrice;
+                setup.tpLocal = setup.entryPrice - (risk_points * 2.0);
+            }
+            setup.tpMacro = setup.tpLocal - (setup.entryPrice - setup.tpLocal); 
+            
+            PrintFormat("[V3 Execution] %s Triggered! Entry: %.5f | SL: %.5f | TP: %.5f", setup.modelName, setup.entryPrice, setup.stopLoss, setup.tpLocal);
         }
     }
 

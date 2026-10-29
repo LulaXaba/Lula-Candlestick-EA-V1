@@ -350,41 +350,54 @@ bool C_TradeExecutor::ExecuteSplitTrade(const STradeSetup &setup)
 
     bool success = true;
 
-    if(setup.direction == SIGNAL_LONG)
+    // -------------------------------------------------------------
+    // Normalize to broker digits to prevent 10016 Invalid Stops
+    // -------------------------------------------------------------
+    int digits = (int)SymbolInfoInteger(m_symbol, SYMBOL_DIGITS);
+    
+    // We must pass a mutable copy to the executor
+    STradeSetup safe_setup = setup;
+    safe_setup.stopLoss = NormalizeDouble(setup.stopLoss, digits);
+    safe_setup.tpLocal  = NormalizeDouble(setup.tpLocal, digits);
+    safe_setup.tpMacro  = NormalizeDouble(setup.tpMacro, digits);
+    
+    // Ensure minimum stop level compliance
+    double stop_level = SymbolInfoInteger(m_symbol, SYMBOL_TRADE_STOPS_LEVEL) * SymbolInfoDouble(m_symbol, SYMBOL_POINT);
+    if(stop_level > 0) {
+        if(safe_setup.direction == SIGNAL_LONG && (safe_setup.entryPrice - safe_setup.stopLoss) < stop_level) 
+            safe_setup.stopLoss = NormalizeDouble(safe_setup.entryPrice - stop_level, digits);
+        if(safe_setup.direction == SIGNAL_SHORT && (safe_setup.stopLoss - safe_setup.entryPrice) < stop_level) 
+            safe_setup.stopLoss = NormalizeDouble(safe_setup.entryPrice + stop_level, digits);
+    }
+    // -------------------------------------------------------------
+
+    if(safe_setup.direction == SIGNAL_LONG)
     {
-        // Ticket 1: The Day Trade (Targets immediate Weak High)
-        if(m_trade.Buy(half_lot, m_symbol, SymbolInfoDouble(m_symbol, SYMBOL_ASK), setup.stopLoss, setup.tpLocal, setup.modelName + " (Day Trade)"))
-        {
-            PrintFormat("[V3 Executor] Ticket 1 (Long) Opened. Lot: %.2f | TP Local: %.5f", half_lot, setup.tpLocal);
-        }
+        // Ticket 1: The Day Trade 
+        if(m_trade.Buy(half_lot, m_symbol, SymbolInfoDouble(m_symbol, SYMBOL_ASK), safe_setup.stopLoss, safe_setup.tpLocal, safe_setup.modelName + " (Day Trade)"))
+            PrintFormat("[V3 Executor] Ticket 1 (Long) Opened. Lot: %.2f | TP Local: %.5f", half_lot, safe_setup.tpLocal);
         else { PrintFormat("[V3 Executor] Error opening Ticket 1: %d", m_trade.ResultRetcode()); success = false; }
         
-        // Ticket 2: The Profit Maximizer (Targets Macro Liquidity)
+        // Ticket 2: The Profit Maximizer 
         if(isSplit)
         {
-            if(m_trade.Buy(half_lot, m_symbol, SymbolInfoDouble(m_symbol, SYMBOL_ASK), setup.stopLoss, setup.tpMacro, setup.modelName + " (Runner)"))
-            {
-                PrintFormat("[V3 Executor] Ticket 2 (Long) Opened. Lot: %.2f | TP Macro: %.5f", half_lot, setup.tpMacro);
-            }
+            if(m_trade.Buy(half_lot, m_symbol, SymbolInfoDouble(m_symbol, SYMBOL_ASK), safe_setup.stopLoss, safe_setup.tpMacro, safe_setup.modelName + " (Runner)"))
+                PrintFormat("[V3 Executor] Ticket 2 (Long) Opened. Lot: %.2f | TP Macro: %.5f", half_lot, safe_setup.tpMacro);
             else { PrintFormat("[V3 Executor] Error opening Ticket 2: %d", m_trade.ResultRetcode()); success = false; }
         }
     }
-    else if(setup.direction == SIGNAL_SHORT)
+    else if(safe_setup.direction == SIGNAL_SHORT)
     {
-        // Ticket 1: The Day Trade (Targets immediate Weak Low)
-        if(m_trade.Sell(half_lot, m_symbol, SymbolInfoDouble(m_symbol, SYMBOL_BID), setup.stopLoss, setup.tpLocal, setup.modelName + " (Day Trade)"))
-        {
-            PrintFormat("[V3 Executor] Ticket 1 (Short) Opened. Lot: %.2f | TP Local: %.5f", half_lot, setup.tpLocal);
-        }
+        // Ticket 1: The Day Trade 
+        if(m_trade.Sell(half_lot, m_symbol, SymbolInfoDouble(m_symbol, SYMBOL_BID), safe_setup.stopLoss, safe_setup.tpLocal, safe_setup.modelName + " (Day Trade)"))
+            PrintFormat("[V3 Executor] Ticket 1 (Short) Opened. Lot: %.2f | TP Local: %.5f", half_lot, safe_setup.tpLocal);
         else { PrintFormat("[V3 Executor] Error opening Ticket 1: %d", m_trade.ResultRetcode()); success = false; }
         
-        // Ticket 2: The Profit Maximizer (Targets Macro Liquidity)
+        // Ticket 2: The Profit Maximizer 
         if(isSplit)
         {
-            if(m_trade.Sell(half_lot, m_symbol, SymbolInfoDouble(m_symbol, SYMBOL_BID), setup.stopLoss, setup.tpMacro, setup.modelName + " (Runner)"))
-            {
-                PrintFormat("[V3 Executor] Ticket 2 (Short) Opened. Lot: %.2f | TP Macro: %.5f", half_lot, setup.tpMacro);
-            }
+            if(m_trade.Sell(half_lot, m_symbol, SymbolInfoDouble(m_symbol, SYMBOL_BID), safe_setup.stopLoss, safe_setup.tpMacro, safe_setup.modelName + " (Runner)"))
+                PrintFormat("[V3 Executor] Ticket 2 (Short) Opened. Lot: %.2f | TP Macro: %.5f", half_lot, safe_setup.tpMacro);
             else { PrintFormat("[V3 Executor] Error opening Ticket 2: %d", m_trade.ResultRetcode()); success = false; }
         }
     }
