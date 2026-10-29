@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
-//|                                             CDecisionTree.mqh    |
-//|                             Lula Price Action Execution Engine V3|
+//|                                              CDecisionTree.mqh   |
+//|                              Lula Price Action Execution Engine V3|
 //+------------------------------------------------------------------+
 #ifndef C_DECISIONTREE_MQH
 #define C_DECISIONTREE_MQH
@@ -98,10 +98,6 @@ STradeSetup C_DecisionTree::Evaluate(
     double current_ask = SymbolInfoDouble(m_symbol, SYMBOL_ASK);
     double buffer = GetDynamicBuffer(PERIOD_M5); // Use LTF buffer for entries
     
-    // ---------------------------------------------------------
-    // GATE 4: LOWER TIME FRAME (LTF) TRIGGER EVALUATION
-    // ---------------------------------------------------------
-    
     // --- STATE TRACKING LATCHES ---
     // These static variables remember if the CHoCH happened, surviving tick-by-tick resets
     static bool s_longChochConfirmed = false;
@@ -113,7 +109,10 @@ STradeSetup C_DecisionTree::Evaluate(
     if(current_state != STATE_LTF_ARMED_SHORT && current_state != STATE_LTF_WAIT_RETRACE_SHORT) 
         s_shortChochConfirmed = false;
 
-    // --- LONG TRIGGER EVALUATION ---
+    // ---------------------------------------------------------
+    // GATE 4: LOWER TIME FRAME (LTF) TRIGGER EVALUATION
+    // ---------------------------------------------------------
+    
     if(current_state == STATE_LTF_ARMED_LONG || current_state == STATE_LTF_WAIT_RETRACE_LONG)
     {
         double ltf_strong_high = ltf_structure.GetLastStrongHigh();
@@ -125,17 +124,17 @@ STradeSetup C_DecisionTree::Evaluate(
             PrintFormat("[V3 Trigger] LATCH SET: Bullish CHoCH confirmed on M5. Waiting for POI re-entry.");
         }
         
-        if(!s_longChochConfirmed) return setup; // Still waiting for the rally
+        if(!s_longChochConfirmed) return setup; // Still waiting for reversal confirmation
         
         // 2. The Retracement Latch (Wait for price to drop back into the MTF Order Block)
         double dummy_sl = 0.0, sweep_level = 0.0;
-        bool inside_poi = mtf_poi_sensor.IsInsideBullishPOI(current_ask, dummy_sl); // Use ASK for buying
+        bool inside_poi = mtf_poi_sensor.IsInsideBullishPOI(current_bid, dummy_sl); 
         bool eq_swept   = mtf_liquidity.IsEQLSwept(sweep_level);
         
         if(!inside_poi && !eq_swept) {
             static datetime lastWaitPrint = 0;
             if(TimeCurrent() - lastWaitPrint >= 300) {
-                PrintFormat("[V3 Trigger] CHoCH Latched. Waiting for price (%.5f) to drop back into Green MTF Box.", current_ask);
+                PrintFormat("[V3 Trigger] CHoCH Latched. Waiting for price (%.5f) to drop back into Green MTF Box.", current_bid);
                 lastWaitPrint = TimeCurrent();
             }
             return setup;
@@ -166,17 +165,15 @@ STradeSetup C_DecisionTree::Evaluate(
             }
             setup.tpMacro = setup.tpLocal + (setup.tpLocal - setup.entryPrice); 
             
-            PrintFormat("[V3 Execution] %s Fired on POI Re-entry! Entry: %.5f | SL: %.5f", setup.modelName, setup.entryPrice, setup.stopLoss);
+            PrintFormat("[V3 Execution] %s Fired on POI Re-entry! Entry: %.5f | SL: %.5f | TP: %.5f", setup.modelName, setup.entryPrice, setup.stopLoss, setup.tpLocal);
             s_longChochConfirmed = false; // Reset latch after firing
         }
     }
-    
-    // --- SHORT TRIGGER EVALUATION ---
     else if(current_state == STATE_LTF_ARMED_SHORT || current_state == STATE_LTF_WAIT_RETRACE_SHORT)
     {
         double ltf_strong_low = ltf_structure.GetLastStrongLow();
         
-        // Trap override: If H4 shifts to Discount, invalidate the setup
+        // Trap override: If HTF shifts to Discount, invalidate the setup
         if(htf_structure.PriceInDiscountZone(current_bid)) {
             s_shortChochConfirmed = false;
             return setup; 
@@ -193,7 +190,7 @@ STradeSetup C_DecisionTree::Evaluate(
         
         // 2. The Retracement Latch (Wait for price to rally back into the MTF Order Block)
         double dummy_sl = 0.0, sweep_level = 0.0;
-        bool inside_poi = mtf_poi_sensor.IsInsideBearishPOI(current_bid, dummy_sl); // Use BID for selling
+        bool inside_poi = mtf_poi_sensor.IsInsideBearishPOI(current_bid, dummy_sl);
         bool eq_swept   = mtf_liquidity.IsEQHSwept(sweep_level);
         
         if(!inside_poi && !eq_swept) {
@@ -230,7 +227,7 @@ STradeSetup C_DecisionTree::Evaluate(
             }
             setup.tpMacro = setup.tpLocal - (setup.entryPrice - setup.tpLocal); 
             
-            PrintFormat("[V3 Execution] %s Fired on POI Re-entry! Entry: %.5f | SL: %.5f", setup.modelName, setup.entryPrice, setup.stopLoss);
+            PrintFormat("[V3 Execution] %s Fired on POI Re-entry! Entry: %.5f | SL: %.5f | TP: %.5f", setup.modelName, setup.entryPrice, setup.stopLoss, setup.tpLocal);
             s_shortChochConfirmed = false; // Reset latch after firing
         }
     }
