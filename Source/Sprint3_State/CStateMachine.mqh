@@ -128,41 +128,33 @@ ENUM_V3_STATE C_StateMachine::UpdateAndRoute(
         lastPrint = TimeCurrent();
     }
 
-    // If price is nowhere near an institutional zone, drop to search mode
-    if(!inDiscount && !inPremium) 
-    {
-        m_currentState = STATE_MTF_POI_SEARCH;
-        return m_currentState;
-    }
-
-    // 3. POI Proximity & Ghost Zone Prevention
-    // Ensure we are inside a valid MTF POI before waking up the LTF
-    
     // --- LONG EVALUATION (Only allowed if H4 Macro is BULLISH) ---
-    if(inDiscount && htf_structure != NULL && htf_structure.GetTrendDirection() == 1)
+    if(htf_structure != NULL && htf_structure.GetTrendDirection() == 1)
     {
         bool inBullishPOI = (mtf_poi_sensor != NULL) && mtf_poi_sensor.IsInsideBullishPOI(current_price, dummy_sl);
         bool eqlSwept     = (mtf_liquidity != NULL) && mtf_liquidity.IsEQLSwept(sweep_level);
         
-        if(inBullishPOI || eqlSwept)
+        // Arm M5 if price hits a deep Discount, OR hits an Order Block, OR sweeps Liquidity
+        if(inDiscount || inBullishPOI || eqlSwept)
         {
             if(m_currentState != STATE_LTF_ARMED_LONG)
-                PrintFormat("[V3 State Machine] H4 BULLISH Trend + H1 Pullback Tapped. Arming M5 for Long Triggers.");
+                PrintFormat("[V3 State Machine] H4 BULLISH Trend + Opportunity Found. Arming M5 for Long Triggers.");
             m_currentState = STATE_LTF_ARMED_LONG;
             return m_currentState;
         }
     }
     
     // --- SHORT EVALUATION (Only allowed if H4 Macro is BEARISH) ---
-    if(inPremium && htf_structure != NULL && htf_structure.GetTrendDirection() == -1)
+    if(htf_structure != NULL && htf_structure.GetTrendDirection() == -1)
     {
         bool inBearishPOI = (mtf_poi_sensor != NULL) && mtf_poi_sensor.IsInsideBearishPOI(current_price, dummy_sl);
         bool eqhSwept     = (mtf_liquidity != NULL) && mtf_liquidity.IsEQHSwept(sweep_level);
         
-        if(inBearishPOI || eqhSwept)
+        // Arm M5 if price hits a deep Premium, OR hits an Order Block, OR sweeps Liquidity
+        if(inPremium || inBearishPOI || eqhSwept)
         {
             if(m_currentState != STATE_LTF_ARMED_SHORT)
-                PrintFormat("[V3 State Machine] H4 BEARISH Trend + H1 Pullback Tapped. Arming M5 for Short Triggers.");
+                PrintFormat("[V3 State Machine] H4 BEARISH Trend + Opportunity Found. Arming M5 for Short Triggers.");
             m_currentState = STATE_LTF_ARMED_SHORT;
             return m_currentState;
         }
