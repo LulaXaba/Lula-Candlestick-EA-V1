@@ -12,11 +12,13 @@
 
 enum ENUM_V3_STATE
 {
-    STATE_HTF_NARRATIVE,    // 1. Determining macro trend and PD ranges
-    STATE_MTF_POI_SEARCH,   // 2. Waiting for price to reach a valid MTF POI
-    STATE_LTF_ARMED_LONG,   // 3. Price is in Discount POI; LTF is awake scanning for Longs
-    STATE_LTF_ARMED_SHORT,  // 4. Price is in Premium POI; LTF is awake scanning for Shorts
-    STATE_STANDBY           // 5. Conflicting conditions, EA goes to sleep
+    STATE_HTF_NARRATIVE,    
+    STATE_MTF_POI_SEARCH,   
+    STATE_LTF_ARMED_LONG,   
+    STATE_LTF_WAIT_RETRACE_LONG, // NEW: CHoCH confirmed, waiting for LTF Discount
+    STATE_LTF_ARMED_SHORT,  
+    STATE_LTF_WAIT_RETRACE_SHORT,// NEW: CHoCH confirmed, waiting for LTF Premium
+    STATE_STANDBY           
 };
 
 class C_StateMachine
@@ -128,7 +130,7 @@ ENUM_V3_STATE C_StateMachine::UpdateAndRoute(
         lastPrint = TimeCurrent();
     }
 
-    // --- LONG EVALUATION (Only allowed if H4 Macro is BULLISH) ---
+    // --- LONG EVALUATION ---
     if(htf_structure != NULL && htf_structure.GetTrendDirection() == 1)
     {
         bool inBullishPOI = (mtf_poi_sensor != NULL) && mtf_poi_sensor.IsInsideBullishPOI(current_price, dummy_sl);
@@ -138,13 +140,13 @@ ENUM_V3_STATE C_StateMachine::UpdateAndRoute(
         if(inDiscount || inBullishPOI || eqlSwept)
         {
             if(m_currentState != STATE_LTF_ARMED_LONG)
-                PrintFormat("[V3 State Machine] H4 BULLISH Trend + Opportunity Found. Arming M5 for Long Triggers.");
+                PrintFormat("[V3 State Machine] %s BULLISH Trend + Opportunity Found. Arming %s for Long Triggers.", EnumToString(m_htf), EnumToString(m_ltf));
             m_currentState = STATE_LTF_ARMED_LONG;
             return m_currentState;
         }
     }
     
-    // --- SHORT EVALUATION (Only allowed if H4 Macro is BEARISH) ---
+    // --- SHORT EVALUATION ---
     if(htf_structure != NULL && htf_structure.GetTrendDirection() == -1)
     {
         bool inBearishPOI = (mtf_poi_sensor != NULL) && mtf_poi_sensor.IsInsideBearishPOI(current_price, dummy_sl);
@@ -154,7 +156,7 @@ ENUM_V3_STATE C_StateMachine::UpdateAndRoute(
         if(inPremium || inBearishPOI || eqhSwept)
         {
             if(m_currentState != STATE_LTF_ARMED_SHORT)
-                PrintFormat("[V3 State Machine] H4 BEARISH Trend + Opportunity Found. Arming M5 for Short Triggers.");
+                PrintFormat("[V3 State Machine] %s BEARISH Trend + Opportunity Found. Arming %s for Short Triggers.", EnumToString(m_htf), EnumToString(m_ltf));
             m_currentState = STATE_LTF_ARMED_SHORT;
             return m_currentState;
         }
