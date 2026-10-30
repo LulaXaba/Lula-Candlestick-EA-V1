@@ -225,236 +225,276 @@ bool CTradeExecutor::GetH1EntryExtremes(ulong ticket, double &h1High, double &h1
 }
 
 //+------------------------------------------------------------------+
-//| V3: Institutional Split Trade Executor                           |
+//| V3: Institutional Split Trade Executor (hardened)                |
 //+------------------------------------------------------------------+
 #include "CDecisionTree.mqh"
+
+enum ENUM_ASSET_CLASS { ASSET_FOREX, ASSET_VOLATILITY, ASSET_BOOMCRASH, ASSET_OTHER_SYNTH };
 
 class C_TradeExecutor
 {
 private:
-    CTrade              m_trade;
-    string              m_symbol;
-    double              m_riskPercent;
-    ulong               m_magicNumber;
+    CTrade            m_trade;
+    string            m_symbol;
+    double            m_riskPercent;      // effective risk after profile cap
+    double            m_maxMarginPct;     // max % of free margin one setup may consume
+    double            m_maxLots;          // hard lot ceiling per setup (total)
+    ulong             m_magicNumber;
+    ENUM_ASSET_CLASS  m_assetClass;
 
-    bool                SetSafeFillingMode();
-    double              CalculateLotSize(double entry_price, double stop_loss);
+    ENUM_ASSET_CLASS  DetectAssetClass();
+    void              ApplyRiskProfile(double requested_risk);
+    bool              SetSafeFillingMode();
+    double            GetLossPerLot(ENUM_ORDER_TYPE type, double entry, double sl);
+    double            GetMarginPerLot(ENUM_ORDER_TYPE type, double entry);
+    double            NormalizeVolume(double vol);
+    double            CalculateLotSize(ENUM_ORDER_TYPE type, double entry, double sl);
+    bool              HasMargin(ENUM_ORDER_TYPE type, double vol, double price);
+    bool              SendOrder(ENUM_ORDER_TYPE type, double vol, double price,
+                                double sl, double tp, const string comment);
 
 public:
-                        C_TradeExecutor();
-                       ~C_TradeExecutor();
+                      C_TradeExecutor();
+                     ~C_TradeExecutor() {}
 
-    bool                Init(string symbol, double risk_percent, ulong magic_number);
-    bool                ExecuteSplitTrade(const STradeSetup &setup);
+    bool              Init(string symbol, double risk_percent, ulong magic_number);
+    bool              ExecuteSplitTrade(const STradeSetup &setup);
 };
 
-C_TradeExecutor::C_TradeExecutor() : m_symbol(""), m_riskPercent(1.0), m_magicNumber(777777) {}
-C_TradeExecutor::~C_TradeExecutor() {}
+C_TradeExecutor::C_TradeExecutor()
+   : m_symbol(""), m_riskPercent(0.5), m_maxMarginPct(0.20),
+     m_maxLots(0.0), m_magicNumber(777777), m_assetClass(ASSET_FOREX) {}
+
+ENUM_ASSET_CLASS C_TradeExecutor::DetectAssetClass()
+{
+    if(StringFind(m_symbol, "Volatility") >= 0 || StringFind(m_symbol, "VIX") >= 0) return ASSET_VOLATILITY;
+    if(StringFind(m_symbol, "Boom")  >= 0 || StringFind(m_symbol, "Crash") >= 0)    return ASSET_BOOMCRASH;
+    if(StringFind(m_symbol, "Step")  >= 0 || StringFind(m_symbol, "Jump")  >= 0 ||
+       StringFind(m_symbol, "Range") >= 0)                                          return ASSET_OTHER_SYNTH;
+    return ASSET_FOREX;
+}
+
+// DEFAULTS - tune per instrument after forward testing.
+void C_TradeExecutor::ApplyRiskProfile(double requested_risk)
+{
+    double cap;
+    switch(m_assetClass)
+    {
+        case ASSET_BOOMCRASH:  cap = 0.50; m_maxMarginPct = 0.15; m_maxLots = 1.0;  break; // spike/gap-through risk
+        case ASSET_VOLATILITY: cap = 0.50; m_maxMarginPct = 0.15; m_maxLots = 1.0;  break; // extreme volatility
+        case ASSET_OTHER_SYNTH:cap = 0.75; m_maxMarginPct = 0.20; m_maxLots = 2.0;  break;
+        default:               cap = 1.00; m_maxMarginPct = 0.20; m_maxLots = 0.0;  break; // 0 = broker max only
+    }
+    m_riskPercent = MathMin(MathMax(requested_risk, 0.0), MathMin(cap, 1.0)); // 1.0% absolute ceiling
+}
 
 bool C_TradeExecutor::Init(string symbol, double risk_percent, ulong magic_number)
 {
-    m_symbol = symbol;
-    m_riskPercent = risk_percent;
+    if(symbol == "" || risk_percent <= 0.0) return false;
+
+    m_symbol      = symbol;
     m_magicNumber = magic_number;
-    
+    m_assetClass  = DetectAssetClass();
+    ApplyRiskProfile(risk_percent);
+
     m_trade.SetExpertMagicNumber(m_magicNumber);
-    m_trade.SetDeviationInPoints(10); // Standard 10-point slippage tolerance
-    
+    m_trade.SetDeviationInPoints(10);
+
     if(!SetSafeFillingMode())
     {
-        PrintFormat("[V3 Executor] FATAL: Could not set a valid filling mode for %s", m_symbol);
+        PrintFormat("[V3 Executor] FATAL: no valid filling mode for %s", m_symbol);
         return false;
     }
-    
-    PrintFormat("[V3 Executor] Initialized. Risk: %.2f%% | Magic: %d", m_riskPercent, m_magicNumber);
+
+    PrintFormat("[V3 Executor] Init %s | Class=%d | Risk req=%.2f%% eff=%.2f%% | MaxMargin=%.0f%% | MaxLots=%.2f | Magic=%I64u",
+                m_symbol, (int)m_assetClass, risk_percent, m_riskPercent,
+                m_maxMarginPct * 100.0, m_maxLots, m_magicNumber);
     return true;
 }
 
-// Solves the Retcode 10030 (Unsupported Filling Mode) bug common on Deriv/Synthetics
 bool C_TradeExecutor::SetSafeFillingMode()
 {
     int filling = (int)SymbolInfoInteger(m_symbol, SYMBOL_FILLING_MODE);
-    
-    if((filling & SYMBOL_FILLING_FOK) != 0) 
-    {
-        m_trade.SetTypeFilling(ORDER_FILLING_FOK);
-        Print("[V3 Executor] Filling Mode set to FOK (Fill or Kill)");
-        return true;
-    }
-    else if((filling & SYMBOL_FILLING_IOC) != 0) 
-    {
-        m_trade.SetTypeFilling(ORDER_FILLING_IOC);
-        Print("[V3 Executor] Filling Mode set to IOC (Immediate or Cancel)");
-        return true;
-    }
-    else
-    {
-        m_trade.SetTypeFilling(ORDER_FILLING_RETURN);
-        Print("[V3 Executor] Filling Mode set to RETURN");
-        return true;
-    }
+    if((filling & SYMBOL_FILLING_FOK) != 0)      m_trade.SetTypeFilling(ORDER_FILLING_FOK);
+    else if((filling & SYMBOL_FILLING_IOC) != 0) m_trade.SetTypeFilling(ORDER_FILLING_IOC);
+    else                                         m_trade.SetTypeFilling(ORDER_FILLING_RETURN);
+    return true;
 }
 
-double C_TradeExecutor::CalculateLotSize(double entry_price, double stop_loss)
+// Broker-computed loss for 1 lot over entry->SL. Fallback: tick math. Unknown = 0 (fail closed).
+double C_TradeExecutor::GetLossPerLot(ENUM_ORDER_TYPE type, double entry, double sl)
+{
+    double profit = 0.0;
+    if(OrderCalcProfit(type, m_symbol, 1.0, entry, sl, profit) && profit != 0.0)
+        return MathAbs(profit);
+
+    double tv = SymbolInfoDouble(m_symbol, SYMBOL_TRADE_TICK_VALUE_LOSS);
+    if(tv <= 0.0) tv = SymbolInfoDouble(m_symbol, SYMBOL_TRADE_TICK_VALUE);
+    double ts = SymbolInfoDouble(m_symbol, SYMBOL_TRADE_TICK_SIZE);
+    if(tv <= 0.0 || ts <= 0.0) return 0.0;
+
+    return (MathAbs(entry - sl) / ts) * tv;
+}
+
+// Broker-computed margin for 1 lot. No guessing: unknown = 0 = no trade.
+double C_TradeExecutor::GetMarginPerLot(ENUM_ORDER_TYPE type, double entry)
+{
+    double margin = 0.0;
+    if(OrderCalcMargin(type, m_symbol, 1.0, entry, margin) && margin > 0.0)
+        return margin;
+
+    double initial = SymbolInfoDouble(m_symbol, SYMBOL_MARGIN_INITIAL);
+    if(initial > 0.0) return initial;
+
+    return 0.0;
+}
+
+double C_TradeExecutor::NormalizeVolume(double vol)
+{
+    double step = SymbolInfoDouble(m_symbol, SYMBOL_VOLUME_STEP);
+    double minL = SymbolInfoDouble(m_symbol, SYMBOL_VOLUME_MIN);
+    double maxL = SymbolInfoDouble(m_symbol, SYMBOL_VOLUME_MAX);
+    if(step <= 0.0 || minL <= 0.0 || vol <= 0.0) return 0.0;
+
+    vol = MathFloor(vol / step + 1e-9) * step;
+    int d = (int)MathMax(0.0, MathRound(-MathLog10(step)));
+    vol = NormalizeDouble(vol, d);
+
+    if(vol < minL) return 0.0;      // never round UP into more risk
+    if(vol > maxL) vol = maxL;
+    return vol;
+}
+
+double C_TradeExecutor::CalculateLotSize(ENUM_ORDER_TYPE type, double entry, double sl)
 {
     double balance = AccountInfoDouble(ACCOUNT_BALANCE);
-    double risk_money = balance * (m_riskPercent / 100.0);
-    
-    // Calculate the physical distance in points
-    double point_distance = MathAbs(entry_price - stop_loss);
-    if(point_distance <= 0) return 0.0;
-    
-    double tick_value = SymbolInfoDouble(m_symbol, SYMBOL_TRADE_TICK_VALUE);
-    double tick_size  = SymbolInfoDouble(m_symbol, SYMBOL_TRADE_TICK_SIZE);
-    double risk_per_lot = 0;
-    
-    // --- THE UNIVERSAL MARKET FILTER ---
-    bool isSynthetic = (StringFind(m_symbol, "Boom") >= 0 || 
-                        StringFind(m_symbol, "Crash") >= 0 || 
-                        StringFind(m_symbol, "Volatility") >= 0 || 
-                        StringFind(m_symbol, "VIX") >= 0 ||
-                        StringFind(m_symbol, "Step") >= 0);
-                        
-    if(isSynthetic) {
-        // SYNTHETICS: Use point-based math
-        // Boom 150 often uses a different point scale, so we adjust based on tick size
-        if (tick_size > 0) {
-           risk_per_lot = (point_distance / tick_size) * tick_size; // Normalizes the point distance
-        } else {
-           risk_per_lot = point_distance; 
-        }
-        
-    } else {
-        // MAJOR FOREX: Use standard fractional tick math
-        if(tick_size > 0 && tick_value > 0) {
-            double ticks = point_distance / tick_size;
-            risk_per_lot = ticks * tick_value;
-        } else {
-            risk_per_lot = point_distance; 
-        }
+    double free_m  = AccountInfoDouble(ACCOUNT_MARGIN_FREE);
+    if(balance <= 0.0 || free_m <= 0.0 || entry <= 0.0 || sl <= 0.0) return 0.0;
+
+    double risk_money   = balance * (m_riskPercent / 100.0);
+    double loss_per_lot = GetLossPerLot(type, entry, sl);
+    double margin_lot   = GetMarginPerLot(type, entry);
+
+    // --- FORENSIC LOG: read this first in the tester journal ---
+    PrintFormat("[V3 AUDIT] %s | entry=%.5f sl=%.5f dist=%.5f | tickVal=%.8f tickSize=%.8f contract=%.2f",
+                m_symbol, entry, sl, MathAbs(entry - sl),
+                SymbolInfoDouble(m_symbol, SYMBOL_TRADE_TICK_VALUE),
+                SymbolInfoDouble(m_symbol, SYMBOL_TRADE_TICK_SIZE),
+                SymbolInfoDouble(m_symbol, SYMBOL_TRADE_CONTRACT_SIZE));
+    PrintFormat("[V3 AUDIT] risk$=%.2f lossPerLot=%.4f marginPerLot=%.4f freeMargin=%.2f lev=%d",
+                risk_money, loss_per_lot, margin_lot, free_m, (int)AccountInfoInteger(ACCOUNT_LEVERAGE));
+
+    if(loss_per_lot <= 0.0) { Print("[V3 Executor] ABORT: loss per lot unknown."); return 0.0; }
+    if(margin_lot   <= 0.0) { Print("[V3 Executor] ABORT: margin per lot unknown."); return 0.0; }
+
+    double lots = risk_money / loss_per_lot;
+
+    // Margin clamp (applies to TOTAL volume, both tickets)
+    double max_by_margin = (free_m * m_maxMarginPct) / margin_lot;
+    if(lots > max_by_margin)
+    {
+        PrintFormat("[V3 Executor] Margin clamp: %.2f -> %.2f lots", lots, max_by_margin);
+        lots = max_by_margin;
     }
-    // -----------------------------------
-    
-    if(risk_per_lot <= 0) return 0.0; 
-    double lot_size = risk_money / risk_per_lot;
-    
-    // --- MARGIN SAFETY LIMITER ---
-    double free_margin = AccountInfoDouble(ACCOUNT_MARGIN_FREE);
-    if(free_margin <= 0) {
-        PrintFormat("[V3 Executor] FATAL: Free Margin is %.2f. Cannot execute trade.", free_margin);
-        return 0.0;
+
+    // Asset-class lot ceiling
+    if(m_maxLots > 0.0 && lots > m_maxLots)
+    {
+        PrintFormat("[V3 Executor] Lot ceiling (%d): %.2f -> %.2f", (int)m_assetClass, lots, m_maxLots);
+        lots = m_maxLots;
     }
-    
-    // Calculate margin required for 1.0 lot
-    double margin_required = 0;
-    ENUM_ORDER_TYPE order_type = (entry_price > stop_loss) ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
-    
-    if(!OrderCalcMargin(order_type, m_symbol, 1.0, entry_price, margin_required) || margin_required <= 0) {
-        margin_required = entry_price / AccountInfoInteger(ACCOUNT_LEVERAGE);
+
+    lots = NormalizeVolume(lots);
+    if(lots <= 0.0)
+        Print("[V3 Executor] ABORT: risk-sized lot below broker minimum. Trade skipped, not inflated.");
+    return lots;
+}
+
+bool C_TradeExecutor::HasMargin(ENUM_ORDER_TYPE type, double vol, double price)
+{
+    double per_lot = GetMarginPerLot(type, price);
+    if(per_lot <= 0.0) return false;
+    double need = per_lot * vol;
+    double free_m = AccountInfoDouble(ACCOUNT_MARGIN_FREE);
+    if(need > free_m * 0.95)
+    {
+        PrintFormat("[V3 Executor] Pre-check FAIL: need %.2f, free %.2f", need, free_m);
+        return false;
     }
-    
-    // We want to limit a single trade to consume no more than 20% of our free margin
-    double max_allowed_margin = free_margin * 0.20; 
-    double total_margin = lot_size * margin_required;
-    
-    if(total_margin > max_allowed_margin && margin_required > 0) {
-        double new_lot = max_allowed_margin / margin_required;
-        PrintFormat("[V3 Executor] Margin Warning: Risk-calculated lot (%.2f) requires too much margin (%.2f). Reducing Lot Size to %.2f.", lot_size, total_margin, new_lot);
-        lot_size = new_lot;
-    }
-    
-    // --- CLAMP TO BROKER LIMITS ---
-    double min_lot  = SymbolInfoDouble(m_symbol, SYMBOL_VOLUME_MIN);
-    double max_lot  = SymbolInfoDouble(m_symbol, SYMBOL_VOLUME_MAX);
-    double step_lot = SymbolInfoDouble(m_symbol, SYMBOL_VOLUME_STEP);
-    
-    lot_size = MathFloor(lot_size / step_lot) * step_lot;
-    
-    if(lot_size < min_lot) {
-        PrintFormat("[V3 Executor] FATAL: Calculated lot size (%.2f) is below broker minimum (%.2f).", lot_size, min_lot);
-        return 0.0;
-    }
-    if(lot_size > max_lot) lot_size = max_lot;
-    
-    return lot_size;
+    return true;
+}
+
+bool C_TradeExecutor::SendOrder(ENUM_ORDER_TYPE type, double vol, double price,
+                                double sl, double tp, const string comment)
+{
+    if(!HasMargin(type, vol, price)) return false;
+
+    bool ok = (type == ORDER_TYPE_BUY)
+              ? m_trade.Buy(vol, m_symbol, price, sl, tp, comment)
+              : m_trade.Sell(vol, m_symbol, price, sl, tp, comment);
+
+    if(!ok)
+        PrintFormat("[V3 Executor] %s FAILED. Retcode=%u (%s)", comment,
+                    m_trade.ResultRetcode(), m_trade.ResultRetcodeDescription());
+    else
+        PrintFormat("[V3 Executor] %s OPEN. Vol=%.2f SL=%.5f TP=%.5f", comment, vol, sl, tp);
+    return ok;
 }
 
 bool C_TradeExecutor::ExecuteSplitTrade(const STradeSetup &setup)
 {
     if(setup.direction == SIGNAL_NONE) return false;
 
-    double total_lot = CalculateLotSize(setup.entryPrice, setup.stopLoss);
+    const bool is_long = (setup.direction == SIGNAL_LONG);
+    const ENUM_ORDER_TYPE type = is_long ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
+
+    // 1. LIVE price - size and stops are computed on what we will actually fill at
+    double price = SymbolInfoDouble(m_symbol, is_long ? SYMBOL_ASK : SYMBOL_BID);
+    if(price <= 0.0) return false;
+
+    int    digits = (int)SymbolInfoInteger(m_symbol, SYMBOL_DIGITS);
+    double point  = SymbolInfoDouble(m_symbol, SYMBOL_POINT);
+    if(point <= 0.0) return false;
+
+    STradeSetup s = setup;
+    s.stopLoss = NormalizeDouble(setup.stopLoss, digits);
+    s.tpLocal  = NormalizeDouble(setup.tpLocal,  digits);
+    s.tpMacro  = NormalizeDouble(setup.tpMacro,  digits);
+
+    // 2. Directional sanity
+    if(is_long  && (s.stopLoss >= price)) { Print("[V3 Executor] ABORT: Long SL >= price."); return false; }
+    if(!is_long && (s.stopLoss <= price)) { Print("[V3 Executor] ABORT: Short SL <= price."); return false; }
+
+    // 3. Stop-level compliance BEFORE sizing (widening SL after sizing breaks the 1% cap)
+    double stop_level = (double)SymbolInfoInteger(m_symbol, SYMBOL_TRADE_STOPS_LEVEL) * point;
+    if(stop_level > 0.0 && MathAbs(price - s.stopLoss) < stop_level)
+        s.stopLoss = NormalizeDouble(is_long ? price - stop_level : price + stop_level, digits);
+
+    // 4. Size on the FINAL stop
+    double total_lot = CalculateLotSize(type, price, s.stopLoss);
     if(total_lot <= 0.0) return false;
 
+    // 5. Split
     double min_lot  = SymbolInfoDouble(m_symbol, SYMBOL_VOLUME_MIN);
-    double step_lot = SymbolInfoDouble(m_symbol, SYMBOL_VOLUME_STEP);
-    
-    // Split the lot size in half and normalize to the broker's step volume
-    double half_lot = MathFloor((total_lot / 2.0) / step_lot) * step_lot;
-    
-    // If the split lot is smaller than the minimum, just execute a single normal trade
-    bool isSplit = true;
-    if(half_lot < min_lot)
+    double half_lot = NormalizeVolume(total_lot / 2.0);
+    bool   isSplit  = (half_lot >= min_lot && half_lot > 0.0);
+
+    if(!isSplit)
     {
-        half_lot = min_lot;
-        isSplit = false;
-        Print("[V3 Executor] Calculated half-lot is below minimum volume. Executing single ticket only.");
+        half_lot = total_lot;   // single ticket carries the full computed size
+        Print("[V3 Executor] Half-lot below minimum. Single ticket, full size.");
     }
 
-    bool success = true;
+    // 6. Ticket 1 gates Ticket 2
+    if(!SendOrder(type, half_lot, price, s.stopLoss, s.tpLocal, s.modelName + " (Day Trade)"))
+        return false;
 
-    // -------------------------------------------------------------
-    // Normalize to broker digits to prevent 10016 Invalid Stops
-    // -------------------------------------------------------------
-    int digits = (int)SymbolInfoInteger(m_symbol, SYMBOL_DIGITS);
-    
-    // We must pass a mutable copy to the executor
-    STradeSetup safe_setup = setup;
-    safe_setup.stopLoss = NormalizeDouble(setup.stopLoss, digits);
-    safe_setup.tpLocal  = NormalizeDouble(setup.tpLocal, digits);
-    safe_setup.tpMacro  = NormalizeDouble(setup.tpMacro, digits);
-    
-    // Ensure minimum stop level compliance
-    double stop_level = SymbolInfoInteger(m_symbol, SYMBOL_TRADE_STOPS_LEVEL) * SymbolInfoDouble(m_symbol, SYMBOL_POINT);
-    if(stop_level > 0) {
-        if(safe_setup.direction == SIGNAL_LONG && (safe_setup.entryPrice - safe_setup.stopLoss) < stop_level) 
-            safe_setup.stopLoss = NormalizeDouble(safe_setup.entryPrice - stop_level, digits);
-        if(safe_setup.direction == SIGNAL_SHORT && (safe_setup.stopLoss - safe_setup.entryPrice) < stop_level) 
-            safe_setup.stopLoss = NormalizeDouble(safe_setup.entryPrice + stop_level, digits);
-    }
-    // -------------------------------------------------------------
-
-    if(safe_setup.direction == SIGNAL_LONG)
+    if(isSplit)
     {
-        // Ticket 1: The Day Trade 
-        if(m_trade.Buy(half_lot, m_symbol, SymbolInfoDouble(m_symbol, SYMBOL_ASK), safe_setup.stopLoss, safe_setup.tpLocal, safe_setup.modelName + " (Day Trade)"))
-            PrintFormat("[V3 Executor] Ticket 1 (Long) Opened. Lot: %.2f | TP Local: %.5f", half_lot, safe_setup.tpLocal);
-        else { PrintFormat("[V3 Executor] Error opening Ticket 1: %d", m_trade.ResultRetcode()); success = false; }
-        
-        // Ticket 2: The Profit Maximizer 
-        if(isSplit)
-        {
-            if(m_trade.Buy(half_lot, m_symbol, SymbolInfoDouble(m_symbol, SYMBOL_ASK), safe_setup.stopLoss, safe_setup.tpMacro, safe_setup.modelName + " (Runner)"))
-                PrintFormat("[V3 Executor] Ticket 2 (Long) Opened. Lot: %.2f | TP Macro: %.5f", half_lot, safe_setup.tpMacro);
-            else { PrintFormat("[V3 Executor] Error opening Ticket 2: %d", m_trade.ResultRetcode()); success = false; }
-        }
+        price = SymbolInfoDouble(m_symbol, is_long ? SYMBOL_ASK : SYMBOL_BID); // refresh
+        if(!SendOrder(type, half_lot, price, s.stopLoss, s.tpMacro, s.modelName + " (Runner)"))
+            return false;   // Ticket 1 stays open at half risk
     }
-    else if(safe_setup.direction == SIGNAL_SHORT)
-    {
-        // Ticket 1: The Day Trade 
-        if(m_trade.Sell(half_lot, m_symbol, SymbolInfoDouble(m_symbol, SYMBOL_BID), safe_setup.stopLoss, safe_setup.tpLocal, safe_setup.modelName + " (Day Trade)"))
-            PrintFormat("[V3 Executor] Ticket 1 (Short) Opened. Lot: %.2f | TP Local: %.5f", half_lot, safe_setup.tpLocal);
-        else { PrintFormat("[V3 Executor] Error opening Ticket 1: %d", m_trade.ResultRetcode()); success = false; }
-        
-        // Ticket 2: The Profit Maximizer 
-        if(isSplit)
-        {
-            if(m_trade.Sell(half_lot, m_symbol, SymbolInfoDouble(m_symbol, SYMBOL_BID), safe_setup.stopLoss, safe_setup.tpMacro, safe_setup.modelName + " (Runner)"))
-                PrintFormat("[V3 Executor] Ticket 2 (Short) Opened. Lot: %.2f | TP Macro: %.5f", half_lot, safe_setup.tpMacro);
-            else { PrintFormat("[V3 Executor] Error opening Ticket 2: %d", m_trade.ResultRetcode()); success = false; }
-        }
-    }
-
-    return success;
+    return true;
 }
 #endif
