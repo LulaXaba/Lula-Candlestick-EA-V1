@@ -309,7 +309,6 @@ double C_TradeExecutor::CalculateLotSize(double entry_price, double stop_loss)
     double risk_per_lot = 0;
     
     // --- THE UNIVERSAL MARKET FILTER ---
-    // Check if the current chart is a Deriv Synthetic Index
     bool isSynthetic = (StringFind(m_symbol, "Boom") >= 0 || 
                         StringFind(m_symbol, "Crash") >= 0 || 
                         StringFind(m_symbol, "Volatility") >= 0 || 
@@ -317,15 +316,21 @@ double C_TradeExecutor::CalculateLotSize(double entry_price, double stop_loss)
                         StringFind(m_symbol, "Step") >= 0);
                         
     if(isSynthetic) {
-        // SYNTHETICS: Bypass broken Deriv tick data. Assume 1 lot = $1 per 1.0 point move.
-        risk_per_lot = point_distance; 
+        // SYNTHETICS: Use point-based math
+        // Boom 150 often uses a different point scale, so we adjust based on tick size
+        if (tick_size > 0) {
+           risk_per_lot = (point_distance / tick_size) * tick_size; // Normalizes the point distance
+        } else {
+           risk_per_lot = point_distance; 
+        }
+        
     } else {
-        // MAJOR FOREX: Trust MT5's standard forex tick math
+        // MAJOR FOREX: Use standard fractional tick math
         if(tick_size > 0 && tick_value > 0) {
             double ticks = point_distance / tick_size;
             risk_per_lot = ticks * tick_value;
         } else {
-            risk_per_lot = point_distance; // Absolute failsafe
+            risk_per_lot = point_distance; 
         }
     }
     // -----------------------------------
@@ -334,6 +339,13 @@ double C_TradeExecutor::CalculateLotSize(double entry_price, double stop_loss)
     double lot_size = risk_money / risk_per_lot;
     
     // --- MARGIN SAFETY LIMITER ---
+    double free_margin = AccountInfoDouble(ACCOUNT_MARGIN_FREE);
+    if(free_margin <= 0) {
+        PrintFormat("[V3 Executor] FATAL: Free Margin is %.2f. Cannot execute trade.", free_margin);
+        return 0.0;
+    }
+    
+    // Calculate margin required for 1.0 lot
     double margin_required = 0;
     ENUM_ORDER_TYPE order_type = (entry_price > stop_loss) ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
     
@@ -341,30 +353,25 @@ double C_TradeExecutor::CalculateLotSize(double entry_price, double stop_loss)
         margin_required = entry_price / AccountInfoInteger(ACCOUNT_LEVERAGE);
     }
     
-    double free_margin = AccountInfoDouble(ACCOUNT_MARGIN_FREE);
-    if(free_margin <= 0) {
-        PrintFormat("[V3 Executor] FATAL: Free Margin is %.2f. Cannot execute trade.", free_margin);
-        return 0.0;
-    }
-    
-    double max_allowed_margin = free_margin * 0.80;
+    // We want to limit a single trade to consume no more than 20% of our free margin
+    double max_allowed_margin = free_margin * 0.20; 
     double total_margin = lot_size * margin_required;
     
-    if(total_margin > max_allowed_margin) {
-        lot_size = max_allowed_margin / margin_required;
-        PrintFormat("[V3 Executor] Margin Warning: Reducing Lot Size to %.2f to fit account constraints.", lot_size);
+    if(total_margin > max_allowed_margin && margin_required > 0) {
+        double new_lot = max_allowed_margin / margin_required;
+        PrintFormat("[V3 Executor] Margin Warning: Risk-calculated lot (%.2f) requires too much margin (%.2f). Reducing Lot Size to %.2f.", lot_size, total_margin, new_lot);
+        lot_size = new_lot;
     }
     
-    // Clamp to broker limits
+    // --- CLAMP TO BROKER LIMITS ---
     double min_lot  = SymbolInfoDouble(m_symbol, SYMBOL_VOLUME_MIN);
     double max_lot  = SymbolInfoDouble(m_symbol, SYMBOL_VOLUME_MAX);
     double step_lot = SymbolInfoDouble(m_symbol, SYMBOL_VOLUME_STEP);
     
     lot_size = MathFloor(lot_size / step_lot) * step_lot;
     
-    // FINAL AFFORDABILITY CHECK
     if(lot_size < min_lot) {
-        PrintFormat("[V3 Executor] FATAL: 1%% risk requires %.2f lots, which is below broker minimum of %.2f.", lot_size, min_lot);
+        PrintFormat("[V3 Executor] FATAL: Calculated lot size (%.2f) is below broker minimum (%.2f).", lot_size, min_lot);
         return 0.0;
     }
     if(lot_size > max_lot) lot_size = max_lot;
