@@ -17,63 +17,69 @@ enum ENUM_TRADE_SIGNAL
     SIGNAL_SHORT
 };
 
-// DTO for passing the exact coordinates to the Executor
+// DTO passing exact coordinates to the Executor
 struct STradeSetup
 {
     ENUM_TRADE_SIGNAL direction;
     double            entryPrice;
     double            stopLoss;
-    double            tpLocal;   // Ticket 1: MTF Target (Day Trade)
-    double            tpMacro;   // Ticket 2: HTF Target (The Runner)
-    string            modelName; // "POI_Continuation" or "Liquidity_Sweep"
+    double            tpLocal;     // Ticket 1: MTF Target (Day Trade)
+    double            tpMacro;     // Ticket 2: HTF Target (The Runner)
+    string            modelName;   // "POI_Continuation" or "Liquidity_Sweep"
+    datetime          poiTime;     // POI formation time (for one-shot mitigation)
+    double            sweepLevel;  // Swept liquidity level
 };
 
 class C_DecisionTree
 {
 private:
     string              m_symbol;
-    
-    // Dynamic Buffer for synthetic spreads (e.g. 1.5 * ATR for SL breathing room)
-    double              GetDynamicBuffer(ENUM_TIMEFRAMES tf);
+    ENUM_TIMEFRAMES     m_ltf;
+    int                 m_atrHandle;  // [Fix #4] persistent ATR handle
+
+    double              GetDynamicBuffer();
 
 public:
                         C_DecisionTree();
                        ~C_DecisionTree();
 
-    bool                Init(string symbol);
-    
-    // The core evaluation method
+    bool                Init(string symbol, ENUM_TIMEFRAMES ltf = PERIOD_M5);
+
     STradeSetup         Evaluate(
                             ENUM_V3_STATE            current_state,
                             C_MarketStructureSensor  *htf_structure,
-                            C_MarketStructureSensor  *ltf_structure, // To detect the LTF CHoCH
+                            C_MarketStructureSensor  *ltf_structure,
                             C_POI_Sensor             *mtf_poi_sensor,
                             C_LiquiditySensor        *mtf_liquidity
                         );
 };
 
-C_DecisionTree::C_DecisionTree() : m_symbol("") {}
-C_DecisionTree::~C_DecisionTree() {}
+C_DecisionTree::C_DecisionTree()
+    : m_symbol(""), m_ltf(PERIOD_M5), m_atrHandle(INVALID_HANDLE) {}
 
-bool C_DecisionTree::Init(string symbol)
+C_DecisionTree::~C_DecisionTree()
+{
+    if(m_atrHandle != INVALID_HANDLE) IndicatorRelease(m_atrHandle);
+}
+
+bool C_DecisionTree::Init(string symbol, ENUM_TIMEFRAMES ltf)
 {
     m_symbol = symbol;
-    PrintFormat("[V3 Decision Tree] Initialized for %s", m_symbol);
+    m_ltf    = ltf;
+    if(m_atrHandle != INVALID_HANDLE) IndicatorRelease(m_atrHandle);
+    m_atrHandle = iATR(m_symbol, m_ltf, 14);
+    PrintFormat("[V3 Decision Tree] Initialized for %s (LTF: %s)", m_symbol, EnumToString(m_ltf));
     return true;
 }
 
-double C_DecisionTree::GetDynamicBuffer(ENUM_TIMEFRAMES tf)
+// [Fix #4] Use the cached handle; reads shift-1 (last fully closed LTF bar)
+double C_DecisionTree::GetDynamicBuffer()
 {
+    if(m_atrHandle == INVALID_HANDLE) return 0.0;
     double atr[];
-    int handle = iATR(m_symbol, tf, 14);
-    if(handle == INVALID_HANDLE) return 0.0;
-    double buffer = 0.0;
-    if(CopyBuffer(handle, 0, 0, 1, atr) > 0)
-    {
-        buffer = atr[0] * 0.5; // 0.5x ATR buffer to avoid wick-outs
-    }
-    IndicatorRelease(handle);
-    return buffer;
+    if(CopyBuffer(m_atrHandle, 0, 1, 1, atr) > 0)
+        return atr[0] * 0.5;  // 0.5x ATR for SL breathing room
+    return 0.0;
 }
 
 STradeSetup C_DecisionTree::Evaluate(
@@ -86,149 +92,179 @@ STradeSetup C_DecisionTree::Evaluate(
     STradeSetup setup;
     ZeroMemory(setup);
     setup.direction = SIGNAL_NONE;
-    
-    if(current_state != STATE_LTF_ARMED_LONG && current_state != STATE_LTF_ARMED_SHORT &&
+
+    if(current_state != STATE_LTF_ARMED_LONG  && current_state != STATE_LTF_ARMED_SHORT &&
        current_state != STATE_LTF_WAIT_RETRACE_LONG && current_state != STATE_LTF_WAIT_RETRACE_SHORT)
-        return setup; // EA is sleeping/searching. Do nothing.
+        return setup;
 
     if(htf_structure == NULL || ltf_structure == NULL || mtf_poi_sensor == NULL || mtf_liquidity == NULL)
         return setup;
 
-    double current_bid = SymbolInfoDouble(m_symbol, SYMBOL_BID);
-    double current_ask = SymbolInfoDouble(m_symbol, SYMBOL_ASK);
-    double buffer = GetDynamicBuffer(PERIOD_M5); // Use LTF buffer for entries
-    
-    // --- STATE TRACKING LATCHES ---
-    // These static variables remember if the CHoCH happened, surviving tick-by-tick resets
-    static bool s_longChochConfirmed = false;
-    static bool s_shortChochConfirmed = false;
+    // [Fix #4] Use the CLOSED bar price for every structural check, not live tick
+    double c1 = iClose(m_symbol, m_ltf, 1);   // last fully closed LTF bar
+    if(c1 <= 0.0) return setup;
 
-    // Reset latches if we are no longer in an active armed state
-    if(current_state != STATE_LTF_ARMED_LONG && current_state != STATE_LTF_WAIT_RETRACE_LONG) 
-        s_longChochConfirmed = false;
-    if(current_state != STATE_LTF_ARMED_SHORT && current_state != STATE_LTF_WAIT_RETRACE_SHORT) 
+    // Live ask/bid only for order fill price — filled at live market
+    double current_ask = SymbolInfoDouble(m_symbol, SYMBOL_ASK);
+    double current_bid = SymbolInfoDouble(m_symbol, SYMBOL_BID);
+    double buffer      = GetDynamicBuffer();
+
+    // --- STATE TRACKING LATCHES & ONE-SHOT GUARD ---
+    static bool     s_longChochConfirmed  = false;
+    static bool     s_shortChochConfirmed = false;
+    static datetime s_lastAttemptBarTime  = 0;
+
+    // Reset latches when no longer in an active armed state
+    if(current_state != STATE_LTF_ARMED_LONG  && current_state != STATE_LTF_WAIT_RETRACE_LONG)
+        s_longChochConfirmed  = false;
+    if(current_state != STATE_LTF_ARMED_SHORT && current_state != STATE_LTF_WAIT_RETRACE_SHORT)
         s_shortChochConfirmed = false;
+
+    datetime current_bar_time = iTime(m_symbol, m_ltf, 0);
+
+    // ONE-SHOT GUARD: once an attempt fires on a bar, nothing else fires that bar
+    if(current_bar_time > 0 && current_bar_time == s_lastAttemptBarTime)
+        return setup;
 
     // ---------------------------------------------------------
     // GATE 4: LOWER TIME FRAME (LTF) TRIGGER EVALUATION
     // ---------------------------------------------------------
-    
+
     if(current_state == STATE_LTF_ARMED_LONG || current_state == STATE_LTF_WAIT_RETRACE_LONG)
     {
         double ltf_strong_high = ltf_structure.GetLastStrongHigh();
-        
-        // 1. Detect and Latch the CHoCH
-        if(!s_longChochConfirmed && ltf_strong_high > 0 && current_bid > ltf_strong_high)
+
+        // 1. CHoCH latch — confirmed when CLOSED bar closes above the swing high
+        if(!s_longChochConfirmed && ltf_strong_high > 0 && c1 > ltf_strong_high)
         {
             s_longChochConfirmed = true;
-            PrintFormat("[V3 Trigger] LATCH SET: Bullish CHoCH confirmed on M5. Waiting for POI re-entry.");
+            PrintFormat("[V3 Trigger] LATCH SET: Bullish CHoCH on %s (close %.5f > swing %.5f). Waiting for POI.",
+                        EnumToString(m_ltf), c1, ltf_strong_high);
         }
-        
-        if(!s_longChochConfirmed) return setup; // Still waiting for reversal confirmation
-        
-        // 2. The Retracement Latch (Wait for price to drop back into the MTF Order Block)
-        double dummy_sl = 0.0, sweep_level = 0.0;
-        bool inside_poi = mtf_poi_sensor.IsInsideBullishPOI(current_bid, dummy_sl); 
-        bool eq_swept   = mtf_liquidity.IsEQLSwept(sweep_level);
-        
-        if(!inside_poi && !eq_swept) {
+
+        if(!s_longChochConfirmed) return setup;
+
+        // 2. POI re-entry — use closed bar price for containment check
+        double   dummy_sl   = 0.0, sweep_level = 0.0;
+        datetime poi_time   = 0;
+        bool     inside_poi = mtf_poi_sensor.IsInsideBullishPOI(c1, dummy_sl, poi_time);
+        bool     eq_swept   = mtf_liquidity.IsEQLSwept(sweep_level);
+
+        if(!inside_poi && !eq_swept)
+        {
             static datetime lastWaitPrint = 0;
-            if(TimeCurrent() - lastWaitPrint >= 300) {
-                PrintFormat("[V3 Trigger] CHoCH Latched. Waiting for price (%.5f) to drop back into Green MTF Box.", current_bid);
+            if(TimeCurrent() - lastWaitPrint >= 300)
+            {
+                PrintFormat("[V3 Trigger] CHoCH Latched. Waiting for close (%.5f) inside Green MTF Box.", c1);
                 lastWaitPrint = TimeCurrent();
             }
             return setup;
         }
-        
-        // 3. Execute
+
+        // 3. Build the setup
         if(inside_poi)
         {
-            setup.direction = SIGNAL_LONG;
+            setup.direction  = SIGNAL_LONG;
             setup.entryPrice = current_ask;
-            setup.stopLoss   = dummy_sl - buffer; 
+            setup.stopLoss   = dummy_sl - buffer;
             setup.modelName  = "POI_Continuation_Long";
+            setup.poiTime    = poi_time;
         }
-        else if(eq_swept)
+        else // eq_swept
         {
-            setup.direction = SIGNAL_LONG;
+            setup.direction  = SIGNAL_LONG;
             setup.entryPrice = current_ask;
-            setup.stopLoss   = sweep_level - buffer; 
+            setup.stopLoss   = sweep_level - buffer;
             setup.modelName  = "Liquidity_Sweep_Long";
+            setup.sweepLevel = sweep_level;
         }
-        
+
         if(setup.direction == SIGNAL_LONG)
         {
-            setup.tpLocal = htf_structure.GetLastWeakHigh(); 
-            if(setup.tpLocal <= setup.entryPrice) {
-                double risk_points = setup.entryPrice - setup.stopLoss;
-                setup.tpLocal = setup.entryPrice + (risk_points * 2.0);
+            setup.tpLocal = htf_structure.GetLastWeakHigh();
+            if(setup.tpLocal <= setup.entryPrice)
+            {
+                double risk = setup.entryPrice - setup.stopLoss;
+                setup.tpLocal = setup.entryPrice + risk * 2.0;
             }
-            setup.tpMacro = setup.tpLocal + (setup.tpLocal - setup.entryPrice); 
-            
-            PrintFormat("[V3 Execution] %s Fired on POI Re-entry! Entry: %.5f | SL: %.5f | TP: %.5f", setup.modelName, setup.entryPrice, setup.stopLoss, setup.tpLocal);
-            s_longChochConfirmed = false; // Reset latch after firing
+            setup.tpMacro = setup.tpLocal + (setup.tpLocal - setup.entryPrice);
+
+            PrintFormat("[V3 Execution] %s | Entry %.5f | SL %.5f | TP1 %.5f",
+                        setup.modelName, setup.entryPrice, setup.stopLoss, setup.tpLocal);
+            s_longChochConfirmed = false;
+            s_lastAttemptBarTime = current_bar_time;
         }
     }
     else if(current_state == STATE_LTF_ARMED_SHORT || current_state == STATE_LTF_WAIT_RETRACE_SHORT)
     {
         double ltf_strong_low = ltf_structure.GetLastStrongLow();
-        
-        // Trap override: If HTF shifts to Discount, invalidate the setup
-        if(htf_structure.PriceInDiscountZone(current_bid)) {
+
+        // Trap override: if HTF is now Discount, invalidate
+        if(htf_structure.PriceInDiscountZone(c1))
+        {
             s_shortChochConfirmed = false;
-            return setup; 
+            return setup;
         }
-        
-        // 1. Detect and Latch the CHoCH
-        if(!s_shortChochConfirmed && ltf_strong_low > 0 && current_bid < ltf_strong_low)
+
+        // 1. CHoCH latch — confirmed when CLOSED bar closes below the swing low
+        if(!s_shortChochConfirmed && ltf_strong_low > 0 && c1 < ltf_strong_low)
         {
             s_shortChochConfirmed = true;
-            PrintFormat("[V3 Trigger] LATCH SET: Bearish CHoCH confirmed on M5. Waiting for POI re-entry.");
+            PrintFormat("[V3 Trigger] LATCH SET: Bearish CHoCH on %s (close %.5f < swing %.5f). Waiting for POI.",
+                        EnumToString(m_ltf), c1, ltf_strong_low);
         }
-        
-        if(!s_shortChochConfirmed) return setup; 
-        
-        // 2. The Retracement Latch (Wait for price to rally back into the MTF Order Block)
-        double dummy_sl = 0.0, sweep_level = 0.0;
-        bool inside_poi = mtf_poi_sensor.IsInsideBearishPOI(current_bid, dummy_sl);
-        bool eq_swept   = mtf_liquidity.IsEQHSwept(sweep_level);
-        
-        if(!inside_poi && !eq_swept) {
+
+        if(!s_shortChochConfirmed) return setup;
+
+        // 2. POI re-entry — use closed bar price
+        double   dummy_sl   = 0.0, sweep_level = 0.0;
+        datetime poi_time   = 0;
+        bool     inside_poi = mtf_poi_sensor.IsInsideBearishPOI(c1, dummy_sl, poi_time);
+        bool     eq_swept   = mtf_liquidity.IsEQHSwept(sweep_level);
+
+        if(!inside_poi && !eq_swept)
+        {
             static datetime lastWaitPrintS = 0;
-            if(TimeCurrent() - lastWaitPrintS >= 300) {
-                PrintFormat("[V3 Trigger] CHoCH Latched. Waiting for price (%.5f) to rally back into Red MTF Box.", current_bid);
+            if(TimeCurrent() - lastWaitPrintS >= 300)
+            {
+                PrintFormat("[V3 Trigger] CHoCH Latched. Waiting for close (%.5f) inside Red MTF Box.", c1);
                 lastWaitPrintS = TimeCurrent();
             }
             return setup;
         }
-        
-        // 3. Execute
+
+        // 3. Build the setup
         if(inside_poi)
         {
-            setup.direction = SIGNAL_SHORT;
+            setup.direction  = SIGNAL_SHORT;
             setup.entryPrice = current_bid;
-            setup.stopLoss   = dummy_sl + buffer; 
+            setup.stopLoss   = dummy_sl + buffer;
             setup.modelName  = "POI_Continuation_Short";
+            setup.poiTime    = poi_time;
         }
-        else if(eq_swept)
+        else // eq_swept
         {
-            setup.direction = SIGNAL_SHORT;
+            setup.direction  = SIGNAL_SHORT;
             setup.entryPrice = current_bid;
-            setup.stopLoss   = sweep_level + buffer; 
+            setup.stopLoss   = sweep_level + buffer;
             setup.modelName  = "Liquidity_Sweep_Short";
+            setup.sweepLevel = sweep_level;
         }
-        
+
         if(setup.direction == SIGNAL_SHORT)
         {
-            setup.tpLocal = htf_structure.GetLastWeakLow(); 
-            if(setup.tpLocal >= setup.entryPrice || setup.tpLocal == 0) {
-                double risk_points = setup.stopLoss - setup.entryPrice;
-                setup.tpLocal = setup.entryPrice - (risk_points * 2.0);
+            setup.tpLocal = htf_structure.GetLastWeakLow();
+            if(setup.tpLocal >= setup.entryPrice || setup.tpLocal == 0)
+            {
+                double risk = setup.stopLoss - setup.entryPrice;
+                setup.tpLocal = setup.entryPrice - risk * 2.0;
             }
-            setup.tpMacro = setup.tpLocal - (setup.entryPrice - setup.tpLocal); 
-            
-            PrintFormat("[V3 Execution] %s Fired on POI Re-entry! Entry: %.5f | SL: %.5f | TP: %.5f", setup.modelName, setup.entryPrice, setup.stopLoss, setup.tpLocal);
-            s_shortChochConfirmed = false; // Reset latch after firing
+            setup.tpMacro = setup.tpLocal - (setup.entryPrice - setup.tpLocal);
+
+            PrintFormat("[V3 Execution] %s | Entry %.5f | SL %.5f | TP1 %.5f",
+                        setup.modelName, setup.entryPrice, setup.stopLoss, setup.tpLocal);
+            s_shortChochConfirmed = false;
+            s_lastAttemptBarTime  = current_bar_time;
         }
     }
 
