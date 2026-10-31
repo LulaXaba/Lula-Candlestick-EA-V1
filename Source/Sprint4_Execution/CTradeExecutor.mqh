@@ -129,6 +129,16 @@ double C_TradeExecutor::GetLossPerLot(ENUM_ORDER_TYPE type, double entry, double
     if(tickMath <= 0.0) return calc;
     if(calc     <= 0.0) return tickMath;
 
+    // In the Strategy Tester the broker engine may price synthetics at a different
+    // scale than symbol tick math (e.g. 10,000× for Boom/Crash).  Trust the tester's
+    // own OrderCalcProfit figure so that sizing is consistent with how the tester
+    // will actually settle the trade.
+    if(MQLInfoInteger(MQL_TESTER) && calc > 0.0)
+    {
+        Print("[V3 Executor] TESTER: sizing on OrderCalcProfit to match tester settlement.");
+        return calc;
+    }
+
     double ratio = calc / tickMath;
     if(ratio > 1.05 || ratio < 0.95)
     {

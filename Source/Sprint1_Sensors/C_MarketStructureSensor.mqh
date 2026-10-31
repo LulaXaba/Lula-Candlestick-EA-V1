@@ -99,10 +99,11 @@ void C_MarketStructureSensor::Update(CZigZagEngine *zigzag_engine) {
     
     // START AT INDEX 1: Ignore node 0 because it repaints until locked
     for(int i = 1; i < total_zz_nodes; i++) {
-        m_nodes[i-1].price = zigzag_engine.GetNodePrice(i);
-        m_nodes[i-1].time  = zigzag_engine.GetNodeTime(i);
-        m_nodes[i-1].isHigh = zigzag_engine.IsNodeHigh(i);
+        m_nodes[i-1].price    = zigzag_engine.GetNodePrice(i);
+        m_nodes[i-1].time     = zigzag_engine.GetNodeTime(i);
+        m_nodes[i-1].isHigh   = zigzag_engine.IsNodeHigh(i);
         m_nodes[i-1].isStrong = false;
+        m_nodes[i-1].isWeak   = false;   // [Patch A] always initialize — GetMacroPhase reads this
     }
     EvaluateInstitutionalStrength();
 }
@@ -122,27 +123,31 @@ void C_MarketStructureSensor::EvaluateInstitutionalStrength() {
     }
 
     // 2. Scan historical nodes for Break of Structure (BOS) to lock in Strong Pivots
+    // [Patch A] Track bull/bear BOS indices separately — most recent (smallest index) wins.
+    //           Reset m_trendDirection first so stale state never persists between Update() calls.
+    m_trendDirection = 0;
+    int bullIdx = -1, bearIdx = -1;
+
     for(int i = 2; i < total; i++) {
         if(m_nodes[i].isHigh) {
             // Bullish BOS: Newer High (i-2) breaks above Older High (i)
             if(m_nodes[i-2].price > m_nodes[i].price) {
-                m_nodes[i-1].isStrong = true; 
-                if(m_lastStrongLow == 0) { // Only grab the most recent one
-                    m_lastStrongLow = m_nodes[i-1].price;
-                    m_trendDirection = 1; // BULLISH
-                }
+                m_nodes[i-1].isStrong = true;
+                if(bullIdx < 0) { m_lastStrongLow = m_nodes[i-1].price; bullIdx = i; }
             }
         } else {
             // Bearish BOS: Newer Low (i-2) breaks below Older Low (i)
             if(m_nodes[i-2].price < m_nodes[i].price) {
-                m_nodes[i-1].isStrong = true; 
-                if(m_lastStrongHigh == 0) {
-                    m_lastStrongHigh = m_nodes[i-1].price;
-                    m_trendDirection = -1; // BEARISH
-                }
+                m_nodes[i-1].isStrong = true;
+                if(bearIdx < 0) { m_lastStrongHigh = m_nodes[i-1].price; bearIdx = i; }
             }
         }
     }
+
+    // Trend = direction of the MOST RECENT BOS (smaller index = newer in series-order cache)
+    if(bullIdx >= 0 && bearIdx >= 0) m_trendDirection = (bullIdx < bearIdx) ? 1 : -1;
+    else if(bullIdx >= 0)            m_trendDirection = 1;
+    else if(bearIdx >= 0)            m_trendDirection = -1;
     
     // --- Dealing Range Fallback ---
     if(m_lastStrongLow == 0 || m_lastStrongHigh == 0) {

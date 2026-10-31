@@ -132,7 +132,7 @@ STradeSetup C_DecisionTree::Evaluate(
 
     if(current_state == STATE_LTF_ARMED_LONG || current_state == STATE_LTF_WAIT_RETRACE_LONG)
     {
-        double ltf_strong_high = ltf_structure.GetLastStrongHigh();
+        double ltf_strong_high = ltf_structure.GetLastWeakHigh();   // [Patch B] CHoCH breaks the WEAK swing, not the strong BOS level
 
         // 1. CHoCH latch — confirmed when CLOSED bar closes above the swing high
         if(!s_longChochConfirmed && ltf_strong_high > 0 && c1 > ltf_strong_high)
@@ -197,7 +197,7 @@ STradeSetup C_DecisionTree::Evaluate(
     }
     else if(current_state == STATE_LTF_ARMED_SHORT || current_state == STATE_LTF_WAIT_RETRACE_SHORT)
     {
-        double ltf_strong_low = ltf_structure.GetLastStrongLow();
+        double ltf_strong_low = ltf_structure.GetLastWeakLow();    // [Patch B] CHoCH breaks the WEAK swing, not the strong BOS level
 
         // Trap override: if HTF is now Discount, invalidate
         if(htf_structure.PriceInDiscountZone(c1))

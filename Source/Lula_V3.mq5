@@ -66,9 +66,9 @@ int OnInit()
     g_zzHTF = new CZigZagEngine();
     g_zzMTF = new CZigZagEngine();
     g_zzLTF = new CZigZagEngine();
-    g_zzHTF.Init(_Symbol, inp_HTF);
-    g_zzMTF.Init(_Symbol, inp_MTF);
-    g_zzLTF.Init(_Symbol, inp_LTF);
+    g_zzHTF.Init(_Symbol, inp_HTF);              // H4 profile depth (no override)
+    g_zzMTF.Init(_Symbol, inp_MTF, 1000, 2.5);  // [Patch #1] MTF: 2.5 × own-TF ATR (starting point)
+    g_zzLTF.Init(_Symbol, inp_LTF, 1000, 2.0);  // [Patch #1] LTF: 2.0 × own-TF ATR (starting point)
 
     // 2. SMC Sensors
     g_structureHTF = new C_MarketStructureSensor();
