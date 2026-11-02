@@ -143,6 +143,7 @@ void OnDeinit(const int reason)
         C_VisualRenderer::Clear("MTF_ZZ_");
         C_VisualRenderer::Clear("POI_");
         C_VisualRenderer::Clear("OB_");
+        C_VisualRenderer::Clear("TRADE_");              // [PATCH VIZ-4]
         C_VisualRenderer::Clear("HTF_Discount_Threshold");
         C_VisualRenderer::Clear("HTF_Premium_Threshold");
     }
@@ -207,7 +208,8 @@ void OnTick()
     {
         bool renderNow = MQLInfoInteger(MQL_VISUAL_MODE) ? true : newLtfBar;
         if(renderNow)
-            C_VisualRenderer::RenderAll(g_zzHTF, g_zzMTF, g_structureHTF, g_poiSensorMTF);
+            C_VisualRenderer::RenderAll(g_zzHTF, g_zzMTF, g_structureHTF, g_poiSensorMTF,
+                                        _Symbol, inp_MagicNumber);
     }
 
     // ----------------------------------------------------------------

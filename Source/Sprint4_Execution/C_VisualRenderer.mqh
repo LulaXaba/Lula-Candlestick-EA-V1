@@ -12,13 +12,16 @@
 
 class C_VisualRenderer {
 public:
-    static void RenderAll(CZigZagEngine *htfZZ, CZigZagEngine *mtfZZ, C_MarketStructureSensor *htfStruct, C_POI_Sensor *poiSensor) {
+    static void RenderAll(CZigZagEngine *htfZZ, CZigZagEngine *mtfZZ,
+                          C_MarketStructureSensor *htfStruct, C_POI_Sensor *poiSensor,
+                          string tradeSymbol = "", ulong tradeMagic = 0) {
         long chart_id = ChartFirst();
         while(chart_id >= 0) {
             DrawZigZag(chart_id, htfZZ, "HTF", clrDodgerBlue, 3);
             DrawZigZag(chart_id, mtfZZ, "MTF", clrDarkOrange, 1);
             DrawPDRange(chart_id, htfStruct);
             DrawPOIs(chart_id, poiSensor);
+            DrawTrades(chart_id, tradeSymbol, tradeMagic);   // [PATCH VIZ-3]
             ChartRedraw(chart_id);
             chart_id = ChartNext(chart_id);
         }
@@ -90,6 +93,86 @@ public:
                 ObjectSetInteger(chart_id, name, OBJPROP_TIME, 1, TimeCurrent() + PeriodSeconds(PERIOD_H1)*20);
             }
         }
+    }
+
+    // [PATCH VIZ-1] Draw every open ticket for this symbol+magic.
+    // Colors: entry = blue/orange (long/short), SL = red dotted, TP = lime dashed.
+    // Tier is extracted from the " T1"/" T2"/" T3" comment suffix.
+    static void DrawTrades(long chart_id, string symbol, ulong magic)
+    {
+        if(symbol == "" || magic == 0) return;
+
+        // --- Draw current positions ---
+        ulong liveTickets[];
+        ArrayResize(liveTickets, 0);
+
+        int total = PositionsTotal();
+        for(int i = 0; i < total; i++)
+        {
+            ulong tk = PositionGetTicket(i);
+            if(tk == 0) continue;
+            if(PositionGetString(POSITION_SYMBOL)             != symbol) continue;
+            if((ulong)PositionGetInteger(POSITION_MAGIC)      != magic)  continue;
+
+            int n = ArraySize(liveTickets);
+            ArrayResize(liveTickets, n + 1);
+            liveTickets[n] = tk;
+
+            string comment = PositionGetString(POSITION_COMMENT);
+            string tier    = "TX";
+            if(StringFind(comment, " T1") >= 0)      tier = "T1";
+            else if(StringFind(comment, " T2") >= 0) tier = "T2";
+            else if(StringFind(comment, " T3") >= 0) tier = "T3";
+
+            bool   isBuy = (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY);
+            double entry = PositionGetDouble(POSITION_PRICE_OPEN);
+            double sl    = PositionGetDouble(POSITION_SL);
+            double tp    = PositionGetDouble(POSITION_TP);
+
+            string base = "TRADE_" + IntegerToString((int)tk) + "_" + tier;
+
+            _HLine(chart_id, base + "_E",  entry,
+                   isBuy ? clrDodgerBlue : clrOrange, STYLE_SOLID, 1);
+            if(sl > 0.0)
+                _HLine(chart_id, base + "_SL", sl, clrRed,       STYLE_DOT,  2);
+            if(tp > 0.0)
+                _HLine(chart_id, base + "_TP", tp, clrLimeGreen, STYLE_DASH, 2);
+        }
+
+        // --- Purge stale TRADE_ objects whose ticket is no longer open ---
+        int objTotal = ObjectsTotal(chart_id, 0, -1);
+        for(int i = objTotal - 1; i >= 0; i--)
+        {
+            string name = ObjectName(chart_id, i, 0, -1);
+            if(StringFind(name, "TRADE_") != 0) continue;
+
+            // name = "TRADE_<ticket>_<tier>_<kind>"; ticket starts at index 6
+            string after  = StringSubstr(name, 6);
+            int    uscore = StringFind(after, "_");
+            if(uscore <= 0) { ObjectDelete(chart_id, name); continue; }
+
+            ulong tk = (ulong)StringToInteger(StringSubstr(after, 0, uscore));
+            bool  alive = false;
+            for(int j = 0; j < ArraySize(liveTickets); j++)
+                if(liveTickets[j] == tk) { alive = true; break; }
+            if(!alive) ObjectDelete(chart_id, name);
+        }
+    }
+
+    // [PATCH VIZ-2] Small helper — create-or-update a horizontal line.
+    static void _HLine(long chart_id, string name, double price,
+                       color clr, ENUM_LINE_STYLE style, int width)
+    {
+        if(ObjectFind(chart_id, name) < 0)
+        {
+            ObjectCreate(chart_id, name, OBJ_HLINE, 0, 0, price);
+            ObjectSetInteger(chart_id, name, OBJPROP_COLOR,  clr);
+            ObjectSetInteger(chart_id, name, OBJPROP_STYLE,  style);
+            ObjectSetInteger(chart_id, name, OBJPROP_WIDTH,  width);
+            ObjectSetInteger(chart_id, name, OBJPROP_HIDDEN, true);
+        }
+        else
+            ObjectSetDouble(chart_id, name, OBJPROP_PRICE, 0, price);
     }
 
     static void Clear(string prefix = "") {
