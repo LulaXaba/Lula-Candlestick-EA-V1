@@ -234,16 +234,33 @@ STradeSetup C_DecisionTree::Evaluate(
 
         if(setup.direction == SIGNAL_LONG)
         {
-            // [Item 8] Stop-size bounds check (reject out-of-range stops, do not widen)
+            // [Item 8] Stop-size bounds check (Widen tight stops, reject wide stops)
             double atr  = GetATR();
-            double risk = MathAbs(setup.entryPrice - setup.stopLoss);
-            if(atr <= 0.0 || risk < m_minStopATR * atr || risk > m_maxStopATR * atr)
+            if(atr <= 0.0) 
             {
-                PrintFormat("[V3 Trigger] REJECT: stop %.5f = %.2f ATR (allowed %.2f-%.2f).",
-                            risk, atr > 0 ? risk / atr : 0.0, m_minStopATR, m_maxStopATR);
+                Print("[V3 Trigger] REJECT: ATR is 0.0, cannot calculate stop floor.");
                 setup.direction = SIGNAL_NONE;
                 s_lastAttemptBarTime = current_bar_time;
                 return setup;
+            }
+            
+            double current_risk = setup.entryPrice - setup.stopLoss;
+            double min_risk = m_minStopATR * atr;
+            double max_risk = m_maxStopATR * atr;
+            
+            if(current_risk > max_risk)
+            {
+                PrintFormat("[V3 Trigger] REJECT: Stop distance %.5f (%.2f ATR) exceeds maximum %.2f ATR.", 
+                            current_risk, current_risk / atr, m_maxStopATR);
+                setup.direction = SIGNAL_NONE;
+                s_lastAttemptBarTime = current_bar_time;
+                return setup;
+            }
+            else if(current_risk < min_risk)
+            {
+                PrintFormat("[V3 Trigger] ADJUST: Stop %.5f too tight (%.2f ATR). Widening SL to %.2f ATR.", 
+                            current_risk, current_risk / atr, m_minStopATR);
+                setup.stopLoss = setup.entryPrice - min_risk;
             }
 
             setup.tpLocal = htf_structure.GetLastWeakHigh();
@@ -344,16 +361,33 @@ STradeSetup C_DecisionTree::Evaluate(
 
         if(setup.direction == SIGNAL_SHORT)
         {
-            // [Item 8] Stop-size bounds check (reject out-of-range stops, do not widen)
+            // [Item 8] Stop-size bounds check (Widen tight stops, reject wide stops)
             double atr  = GetATR();
-            double risk = MathAbs(setup.entryPrice - setup.stopLoss);
-            if(atr <= 0.0 || risk < m_minStopATR * atr || risk > m_maxStopATR * atr)
+            if(atr <= 0.0) 
             {
-                PrintFormat("[V3 Trigger] REJECT: stop %.5f = %.2f ATR (allowed %.2f-%.2f).",
-                            risk, atr > 0 ? risk / atr : 0.0, m_minStopATR, m_maxStopATR);
+                Print("[V3 Trigger] REJECT: ATR is 0.0, cannot calculate stop floor.");
                 setup.direction = SIGNAL_NONE;
                 s_lastAttemptBarTime = current_bar_time;
                 return setup;
+            }
+            
+            double current_risk = setup.stopLoss - setup.entryPrice;
+            double min_risk = m_minStopATR * atr;
+            double max_risk = m_maxStopATR * atr;
+            
+            if(current_risk > max_risk)
+            {
+                PrintFormat("[V3 Trigger] REJECT: Stop distance %.5f (%.2f ATR) exceeds maximum %.2f ATR.", 
+                            current_risk, current_risk / atr, m_maxStopATR);
+                setup.direction = SIGNAL_NONE;
+                s_lastAttemptBarTime = current_bar_time;
+                return setup;
+            }
+            else if(current_risk < min_risk)
+            {
+                PrintFormat("[V3 Trigger] ADJUST: Stop %.5f too tight (%.2f ATR). Widening SL to %.2f ATR.", 
+                            current_risk, current_risk / atr, m_minStopATR);
+                setup.stopLoss = setup.entryPrice + min_risk;
             }
 
             setup.tpLocal = htf_structure.GetLastWeakLow();
