@@ -48,6 +48,11 @@ input double            inp_ManageSL_BufATR   = 0.25;    // SL buffer around swi
 input double            inp_EarlyProtectATR   = 1.00;    // Pre-T1 BE trigger (×ATR profit)
 input bool              inp_EnableEarlyProtect= true;    // Enable T0 early protection
 
+input group "--- V3 Stop Sizing & Execution Gates ---"
+input double            inp_MinStopATR        = 1.0;     // Min stop (widened if tighter)
+input double            inp_MaxStopATR        = 10.0;    // Max stop — 10 ATR for FX (4.0 was too tight)
+input double            inp_MaxSpreadFrac     = 0.30;    // Max spread as fraction of stop risk (was 0.15)
+
 input group "--- Visual Mode & Charting ---"
 input bool              inp_ShowVisuals       = true;    // Draw SMC Concepts on Chart
 
@@ -109,7 +114,8 @@ int OnInit()
     g_executor     = new C_TradeExecutor();
 
     g_stateMachine.Init(_Symbol, inp_HTF, inp_MTF, inp_LTF, inp_ArmedHoldBars);
-    g_decisionTree.Init(_Symbol, inp_LTF, inp_ChochLatchBars, inp_POITolATR);
+    g_decisionTree.Init(_Symbol, inp_LTF, inp_ChochLatchBars, inp_POITolATR,
+                        inp_MinStopATR, inp_MaxStopATR);
 
     // [PATCH V2] Init manager BEFORE executor so the executor's Init log shows ATTACHED
     if(!g_tradeManager.Init(_Symbol, inp_MagicNumber, inp_LTF,
@@ -123,7 +129,7 @@ int OnInit()
     g_executor.SetTradeManager(g_tradeManager);
 
     // [PATCH V3] Pass inp_LTF so executor's internal ATR handle matches the LTF
-    if(!g_executor.Init(_Symbol, inp_RiskPercent, inp_MagicNumber, inp_LTF))
+    if(!g_executor.Init(_Symbol, inp_RiskPercent, inp_MagicNumber, inp_LTF, inp_MaxSpreadFrac))
     {
         Print("FATAL: Trade Executor failed to initialize. Check broker filling modes.");
         return INIT_FAILED;

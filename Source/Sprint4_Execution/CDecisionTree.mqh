@@ -58,7 +58,8 @@ public:
                        ~C_DecisionTree();
 
     bool                Init(string symbol, ENUM_TIMEFRAMES ltf = PERIOD_M5,
-                             int latchBars = 72, double proxATR = 0.30);
+                             int latchBars = 72, double proxATR = 0.30,
+                             double minStopATR = 0.0, double maxStopATR = 0.0);   // [FIX S-1]
 
     STradeSetup         Evaluate(
                             ENUM_V3_STATE            current_state,
@@ -71,7 +72,7 @@ public:
 
 C_DecisionTree::C_DecisionTree()
     : m_symbol(""), m_ltf(PERIOD_M5), m_atrHandle(INVALID_HANDLE),
-      m_minStopATR(1.0), m_maxStopATR(4.0),
+      m_minStopATR(1.0), m_maxStopATR(10.0),
       m_latchBars(72), m_proxATR(0.30) {}
 
 C_DecisionTree::~C_DecisionTree()
@@ -79,7 +80,8 @@ C_DecisionTree::~C_DecisionTree()
     if(m_atrHandle != INVALID_HANDLE) IndicatorRelease(m_atrHandle);
 }
 
-bool C_DecisionTree::Init(string symbol, ENUM_TIMEFRAMES ltf, int latchBars, double proxATR)
+bool C_DecisionTree::Init(string symbol, ENUM_TIMEFRAMES ltf, int latchBars, double proxATR,
+                          double minStopATR, double maxStopATR)
 {
     m_symbol    = symbol;
     m_ltf       = ltf;
@@ -89,8 +91,10 @@ bool C_DecisionTree::Init(string symbol, ENUM_TIMEFRAMES ltf, int latchBars, dou
     m_atrHandle = iATR(m_symbol, m_ltf, 14);
 
     SSymbolProfile prof = CSymbolProfile::Get(m_symbol);
-    m_minStopATR = (prof.stop_min_atr > 0.0) ? prof.stop_min_atr : 1.0;
-    m_maxStopATR = (prof.stop_max_atr > 0.0) ? prof.stop_max_atr : 4.0;
+    m_minStopATR = (minStopATR > 0.0) ? minStopATR
+                  : ((prof.stop_min_atr > 0.0) ? prof.stop_min_atr : 1.0);
+    m_maxStopATR = (maxStopATR > 0.0) ? maxStopATR
+                  : ((prof.stop_max_atr > 0.0) ? prof.stop_max_atr : 10.0);
 
     PrintFormat("[V3 Decision Tree] Initialized for %s (LTF: %s | StopATR: %.1f-%.1f | latchBars: %d | proxATR: %.2f)",
                 m_symbol, EnumToString(m_ltf), m_minStopATR, m_maxStopATR, m_latchBars, m_proxATR);
@@ -266,13 +270,12 @@ STradeSetup C_DecisionTree::Evaluate(
             double min_risk = m_minStopATR * atr;
             double max_risk = m_maxStopATR * atr;
             
+            // [FIX S-2] Wide stops are valid — accept and let risk-sizing shrink the lot
             if(current_risk > max_risk)
             {
-                PrintFormat("[V3 Trigger] REJECT: Stop distance %.5f (%.2f ATR) exceeds maximum %.2f ATR.", 
-                            current_risk, current_risk / atr, m_maxStopATR);
-                setup.direction = SIGNAL_NONE;
-                s_lastAttemptBarTime = current_bar_time;
-                return setup;
+                PrintFormat("[V3 Trigger] ACCEPT-WIDE: Stop %.2f ATR (max %.2f). Lot will scale down.", 
+                            current_risk / atr, m_maxStopATR);
+                // no rejection — CalculateLotSize handles the sizing
             }
             else if(current_risk < min_risk)
             {
@@ -290,6 +293,14 @@ STradeSetup C_DecisionTree::Evaluate(
             if(t1Struct <= 0 || t1Struct <= setup.entryPrice)
                 t1Struct = setup.entryPrice + risk * 1.5;
             setup.tp1 = t1Struct;
+
+            // [FIX M-3] Sweep T1 must be at least 1.5R from entry
+            if(setup.modelName == "Liquidity_Sweep_Long")
+            {
+                double minT1Dist = risk * 1.5;
+                if((setup.tp1 - setup.entryPrice) < minT1Dist)
+                    setup.tp1 = setup.entryPrice + minT1Dist;
+            }
 
             // T2: 2.5R minimum — never below T1
             double t2Min = setup.entryPrice + risk * 2.5;
@@ -425,13 +436,12 @@ STradeSetup C_DecisionTree::Evaluate(
             double min_risk = m_minStopATR * atr;
             double max_risk = m_maxStopATR * atr;
             
+            // [FIX S-2] Wide stops are valid — accept and let risk-sizing shrink the lot
             if(current_risk > max_risk)
             {
-                PrintFormat("[V3 Trigger] REJECT: Stop distance %.5f (%.2f ATR) exceeds maximum %.2f ATR.", 
-                            current_risk, current_risk / atr, m_maxStopATR);
-                setup.direction = SIGNAL_NONE;
-                s_lastAttemptBarTime = current_bar_time;
-                return setup;
+                PrintFormat("[V3 Trigger] ACCEPT-WIDE: Stop %.2f ATR (max %.2f). Lot will scale down.", 
+                            current_risk / atr, m_maxStopATR);
+                // no rejection — CalculateLotSize handles the sizing
             }
             else if(current_risk < min_risk)
             {
@@ -449,6 +459,14 @@ STradeSetup C_DecisionTree::Evaluate(
             if(t1Struct <= 0 || t1Struct >= setup.entryPrice)
                 t1Struct = setup.entryPrice - risk * 1.5;
             setup.tp1 = t1Struct;
+
+            // [FIX M-3] Sweep T1 must be at least 1.5R from entry
+            if(setup.modelName == "Liquidity_Sweep_Short")
+            {
+                double minT1Dist = risk * 1.5;
+                if((setup.entryPrice - setup.tp1) < minT1Dist)
+                    setup.tp1 = setup.entryPrice - minT1Dist;
+            }
 
             // T2: 2.5R minimum — never below T1
             double t2Min = setup.entryPrice - risk * 2.5;

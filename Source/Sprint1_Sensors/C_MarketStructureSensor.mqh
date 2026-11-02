@@ -49,6 +49,7 @@ public:
     // Feed the perfected V2 ZigZag engine into the V3 Sensor
     void                Update(CZigZagEngine *zigzag_engine);
 
+    bool                GetActiveDealingRange(double &rangeLow, double &rangeHigh);
     bool                PriceInDiscountZone(double current_price);
     bool                PriceInPremiumZone(double current_price);
     ENUM_MACRO_PHASE    GetMacroPhase();
@@ -60,14 +61,14 @@ public:
     double              GetLastWeakLow()    { return m_lastWeakLow; }
 
     double GetDiscountThreshold() {
-        if(m_lastStrongLow == 0 || m_lastWeakHigh == 0) return 0;
-        // Equilibrium = 50% of the range  (matches PriceInDiscountZone)
-        return m_lastStrongLow + (m_lastWeakHigh - m_lastStrongLow) * 0.5;
+        double rLow, rHigh;
+        if(!GetActiveDealingRange(rLow, rHigh)) return 0.0;
+        return rLow + (rHigh - rLow) * 0.5;
     }
     double GetPremiumThreshold() {
-        if(m_lastStrongHigh == 0 || m_lastWeakLow == 0) return 0;
-        // Equilibrium = 50% of the range  (matches PriceInPremiumZone)
-        return m_lastWeakLow + (m_lastStrongHigh - m_lastWeakLow) * 0.5;
+        double rLow, rHigh;
+        if(!GetActiveDealingRange(rLow, rHigh)) return 0.0;
+        return rLow + (rHigh - rLow) * 0.5;
     }
 };
 
@@ -163,20 +164,49 @@ void C_MarketStructureSensor::EvaluateInstitutionalStrength() {
     }
 }
 
+bool C_MarketStructureSensor::GetActiveDealingRange(double &rangeLow, double &rangeHigh)
+{
+    rangeLow = 0.0;
+    rangeHigh = 0.0;
+    if(m_trendDirection == 1) // Bullish dealing range
+    {
+        rangeLow  = m_lastStrongLow;
+        rangeHigh = m_lastWeakHigh;
+    }
+    else if(m_trendDirection == -1) // Bearish dealing range
+    {
+        rangeLow  = m_lastWeakLow;
+        rangeHigh = m_lastStrongHigh;
+    }
+    else // Undefined / Ranging
+    {
+        double l1 = m_lastStrongLow;
+        double l2 = m_lastWeakLow;
+        if(l1 > 0 && l2 > 0) rangeLow = MathMin(l1, l2);
+        else rangeLow = MathMax(l1, l2);
+
+        rangeHigh = MathMax(m_lastStrongHigh, m_lastWeakHigh);
+    }
+
+    return (rangeLow > 0.0 && rangeHigh > rangeLow);
+}
+
 bool C_MarketStructureSensor::PriceInDiscountZone(double p)
 {
-    // [Patch 2] True only in the lower 50% of the bullish dealing range
-    if(m_lastStrongLow == 0 || m_lastWeakHigh == 0) return false;
-    double range = m_lastWeakHigh - m_lastStrongLow;
-    return (range > 0 && p <= m_lastStrongLow + range * 0.5);
+    // [Defect #6 Fix] Unified range: Discount is lower 50% of the active dealing range
+    double rLow, rHigh;
+    if(!GetActiveDealingRange(rLow, rHigh)) return false;
+    double mid = rLow + (rHigh - rLow) * 0.50;
+    return (p < mid);
 }
 
 bool C_MarketStructureSensor::PriceInPremiumZone(double p)
 {
-    // [Patch 2] True only in the upper 50% of the bearish dealing range
-    if(m_lastStrongHigh == 0 || m_lastWeakLow == 0) return false;
-    double range = m_lastStrongHigh - m_lastWeakLow;
-    return (range > 0 && p >= m_lastWeakLow + range * 0.5);
+    // [Defect #6 Fix] Unified range: Premium is upper 50% of the active dealing range
+    double rLow, rHigh;
+    if(!GetActiveDealingRange(rLow, rHigh)) return false;
+    double mid = rLow + (rHigh - rLow) * 0.50;
+    return (p > mid);
 }
 
 ENUM_MACRO_PHASE C_MarketStructureSensor::GetMacroPhase()

@@ -30,6 +30,7 @@ struct STradeGroup
     double         atrAtEntry;
     bool           t1Hit;
     bool           t2Hit;
+    bool           invalidated;       // [FIX M-1] true if stopped out on T1/T2
     string         modelName;
     STrackedTicket tickets[3];
 };
@@ -52,6 +53,7 @@ private:
     double  FindNewestLH     (CZigZagEngine* zz, double currentSL, double price);
 
     // --- order plumbing ---
+    int     GetCloseReason(ulong posId, double expectedTP, double expectedSL); // [FIX M-1]
     bool    IsPositionOpen(ulong posId);
     bool    BetterSL(long dir, double candidate, double current);
     bool    MoveStop(ulong posId, double newSL);
@@ -133,6 +135,7 @@ void C_TradeManager::Register(ulong positionId, int tier, long direction,
         m_groups[gi].atrAtEntry   = atrAtEntry;
         m_groups[gi].t1Hit        = false;
         m_groups[gi].t2Hit        = false;
+        m_groups[gi].invalidated  = false;
         m_groups[gi].modelName    = modelName;
         for(int t = 0; t < 3; t++)
         {
@@ -207,27 +210,92 @@ void C_TradeManager::OnLtfBar(C_MarketStructureSensor* htf_structure,
         }
 
         //----------------------------------------------------------
-        // 2. DETECT T1 / T2 HITS (broker TP closed ticket → flag it)
+        // 2. DETECT T1 / T2 HITS [FIX M-1] — only act on confirmed TP; treat SL as failure
         //----------------------------------------------------------
-        if(!m_groups[g].t1Hit && m_groups[g].tickets[0].isOpen && !IsPositionOpen(m_groups[g].tickets[0].positionId))
+        if(m_groups[g].tickets[0].isOpen)
         {
-            m_groups[g].t1Hit = true;
-            m_groups[g].tickets[0].isOpen = false;
-            PrintFormat("[V3 Manage] Group %I64u — T1 HIT (%.5f). SL of T2/T3 → breakeven %.5f",
-                        m_groups[g].groupId, m_groups[g].tickets[0].tp, m_groups[g].entryPrice);
-            for(int t = 1; t < 3; t++)
-                if(m_groups[g].tickets[t].isOpen && BetterSL(m_groups[g].direction, m_groups[g].entryPrice, m_groups[g].tickets[t].currentSL))
+            int reason = GetCloseReason(m_groups[g].tickets[0].positionId,
+                                        m_groups[g].tickets[0].tp, m_groups[g].tickets[0].currentSL);
+            if(reason != 0)
+            {
+                m_groups[g].tickets[0].isOpen = false;
+                if(reason == 1) // genuine TP hit
                 {
-                    if(MoveStop(m_groups[g].tickets[t].positionId, m_groups[g].entryPrice))
-                        m_groups[g].tickets[t].currentSL = m_groups[g].entryPrice;
+                    m_groups[g].t1Hit = true;
+                    PrintFormat("[V3 Manage] Group %I64u — T1 TP HIT (%.5f). SL of T2/T3 -> BE %.5f",
+                                m_groups[g].groupId, m_groups[g].tickets[0].tp, m_groups[g].entryPrice);
+                    for(int t = 1; t < 3; t++)
+                    {
+                        if(m_groups[g].tickets[t].isOpen && BetterSL(m_groups[g].direction, m_groups[g].entryPrice, m_groups[g].tickets[t].currentSL))
+                        {
+                            if(MoveStop(m_groups[g].tickets[t].positionId, m_groups[g].entryPrice))
+                                m_groups[g].tickets[t].currentSL = m_groups[g].entryPrice;
+                        }
+                    }
                 }
+                else if(reason == 2) // T1 stopped out — setup invalidated
+                {
+                    m_groups[g].invalidated = true;
+                    PrintFormat("[V3 Manage] Group %I64u — T1 STOPPED OUT @ %.5f. Closing T2/T3 as failed setup.",
+                                m_groups[g].groupId, m_groups[g].tickets[0].currentSL);
+                    for(int t = 1; t < 3; t++)
+                    {
+                        if(m_groups[g].tickets[t].isOpen)
+                        {
+                            CloseTicket(m_groups[g].tickets[t].positionId, "T1 stopped — setup failed");
+                            m_groups[g].tickets[t].isOpen = false;
+                        }
+                    }
+                    m_groups[g].direction = 0;
+                    continue;
+                }
+                else // manual / other
+                {
+                    PrintFormat("[V3 Manage] Group %I64u — T1 closed manually (%d). Exiting remaining tiers.",
+                                m_groups[g].groupId, reason);
+                    for(int t = 1; t < 3; t++)
+                    {
+                        if(m_groups[g].tickets[t].isOpen)
+                        {
+                            CloseTicket(m_groups[g].tickets[t].positionId, "manual");
+                            m_groups[g].tickets[t].isOpen = false;
+                        }
+                    }
+                    m_groups[g].direction = 0;
+                    continue;
+                }
+            }
         }
-        if(!m_groups[g].t2Hit && m_groups[g].tickets[1].isOpen && !IsPositionOpen(m_groups[g].tickets[1].positionId))
+
+        if(m_groups[g].tickets[1].isOpen)
         {
-            m_groups[g].t2Hit = true;
-            m_groups[g].tickets[1].isOpen = false;
-            PrintFormat("[V3 Manage] Group %I64u — T2 HIT (%.5f). Trailing T3 to swing HL/LH.",
-                        m_groups[g].groupId, m_groups[g].tickets[1].tp);
+            int reason = GetCloseReason(m_groups[g].tickets[1].positionId,
+                                        m_groups[g].tickets[1].tp, m_groups[g].tickets[1].currentSL);
+            if(reason != 0)
+            {
+                m_groups[g].tickets[1].isOpen = false;
+                if(reason == 1) // genuine TP hit
+                {
+                    m_groups[g].t2Hit = true;
+                    PrintFormat("[V3 Manage] Group %I64u — T2 TP HIT (%.5f). Trailing T3 to swing HL/LH.",
+                                m_groups[g].groupId, m_groups[g].tickets[1].tp);
+                }
+                else if(reason == 2)
+                {
+                    PrintFormat("[V3 Manage] Group %I64u — T2 STOPPED OUT @ %.5f.",
+                                m_groups[g].groupId, m_groups[g].tickets[1].currentSL);
+                }
+                else
+                {
+                    PrintFormat("[V3 Manage] Group %I64u — T2 closed manually (%d).",
+                                m_groups[g].groupId, reason);
+                }
+            }
+        }
+
+        if(m_groups[g].tickets[2].isOpen && !IsPositionOpen(m_groups[g].tickets[2].positionId))
+        {
+            m_groups[g].tickets[2].isOpen = false;
         }
 
         //----------------------------------------------------------
@@ -236,6 +304,20 @@ void C_TradeManager::OnLtfBar(C_MarketStructureSensor* htf_structure,
         for(int t = 0; t < 3; t++)
         {
             if(!m_groups[g].tickets[t].isOpen) continue;
+
+            // [FIX M-2] T3 has no broker TP — check internal TP manually
+            if(t == 2 && m_groups[g].t2Hit && m_groups[g].tickets[t].tp > 0.0)
+            {
+                if((m_groups[g].direction == +1 && bid >= m_groups[g].tickets[t].tp) ||
+                   (m_groups[g].direction == -1 && ask <= m_groups[g].tickets[t].tp))
+                {
+                    PrintFormat("[V3 Manage] Group %I64u — T3 internal TP HIT (%.5f). Closing.",
+                                m_groups[g].groupId, m_groups[g].tickets[t].tp);
+                    CloseTicket(m_groups[g].tickets[t].positionId, "T3 internal TP");
+                    m_groups[g].tickets[t].isOpen = false;
+                    continue;
+                }
+            }
 
             double price = (m_groups[g].direction == +1) ? bid : ask;
             double newSL = m_groups[g].tickets[t].currentSL;
@@ -338,6 +420,41 @@ double C_TradeManager::FindNewestLH(CZigZagEngine* zz, double currentSL, double 
 //====================================================================
 // Order plumbing
 //====================================================================
+// [FIX M-1] Return enum: 0=still open, 1=TP, 2=SL, 3=manual/other
+int C_TradeManager::GetCloseReason(ulong posId, double expectedTP, double expectedSL)
+{
+    if(posId == 0) return 3;
+    if(IsPositionOpen(posId)) return 0;
+
+    // Scan recent history deals for this position
+    datetime now    = TimeCurrent();
+    datetime cutoff = now - 7 * 86400;
+    HistorySelect(cutoff, now);
+
+    int total = HistoryDealsTotal();
+    for(int i = total - 1; i >= 0; i--)
+    {
+        ulong deal = HistoryDealGetTicket(i);
+        if(deal == 0) continue;
+        if((ulong)HistoryDealGetInteger(deal, DEAL_POSITION_ID) != posId) continue;
+        if(HistoryDealGetInteger(deal, DEAL_ENTRY) != DEAL_ENTRY_OUT) continue;
+
+        long reason = HistoryDealGetInteger(deal, DEAL_REASON);
+        if(reason == DEAL_REASON_TP) return 1;
+        if(reason == DEAL_REASON_SL) return 2;
+
+        // Secondary price-proximity check in case DEAL_REASON is missing
+        double price = HistoryDealGetDouble(deal, DEAL_PRICE);
+        double point = SymbolInfoDouble(m_symbol, SYMBOL_POINT);
+        if(point <= 0) point = _Point;
+        if(expectedTP > 0.0 && MathAbs(price - expectedTP) <= 2.0 * point) return 1;
+        if(expectedSL > 0.0 && MathAbs(price - expectedSL) <= 2.0 * point) return 2;
+
+        return 3;
+    }
+    return 3;   // assume manual
+}
+
 bool C_TradeManager::IsPositionOpen(ulong posId)
 {
     if(posId == 0) return false;

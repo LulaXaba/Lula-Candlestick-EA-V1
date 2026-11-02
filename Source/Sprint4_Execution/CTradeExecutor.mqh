@@ -50,7 +50,7 @@ public:
                      ~C_TradeExecutor();
 
     bool              Init(string symbol, double risk_percent, ulong magic_number,
-                           ENUM_TIMEFRAMES ltf = PERIOD_M5);   // [PATCH X3]
+                           ENUM_TIMEFRAMES ltf = PERIOD_M5, double maxSpreadFrac = 0.0);   // [PATCH X3]
     bool              ExecuteSplitTrade(const STradeSetup &setup);
     int               TicketsOpened() const { return m_ticketsOpened; }
     bool              HasOpenPosition();
@@ -106,7 +106,7 @@ void C_TradeExecutor::ApplyRiskProfile(double requested_risk)
 
 // [PATCH X3] Init now takes an LTF so the executor can stamp entryTime consistently
 bool C_TradeExecutor::Init(string symbol, double risk_percent, ulong magic_number,
-                           ENUM_TIMEFRAMES ltf)
+                           ENUM_TIMEFRAMES ltf, double maxSpreadFrac)
 {
     if(symbol == "" || risk_percent <= 0.0) return false;
 
@@ -117,7 +117,8 @@ bool C_TradeExecutor::Init(string symbol, double risk_percent, ulong magic_numbe
     ApplyRiskProfile(risk_percent);
 
     SSymbolProfile prof = CSymbolProfile::Get(m_symbol);
-    m_maxSpreadFrac = (prof.stop_max_spread_frac > 0.0) ? prof.stop_max_spread_frac : 0.15;
+    m_maxSpreadFrac = (maxSpreadFrac > 0.0) ? maxSpreadFrac
+                    : ((prof.stop_max_spread_frac > 0.0) ? prof.stop_max_spread_frac : 0.30);
 
     if(m_atrHandle != INVALID_HANDLE) IndicatorRelease(m_atrHandle);
     m_atrHandle = iATR(m_symbol, m_ltf, 14);
@@ -377,12 +378,16 @@ bool C_TradeExecutor::ExecuteSplitTrade(const STradeSetup &setup)
 
     // Spread gate
     double spread = SymbolInfoDouble(m_symbol, SYMBOL_ASK) - SymbolInfoDouble(m_symbol, SYMBOL_BID);
-    if(spread > m_maxSpreadFrac * risk)
+    double spreadRatio = (risk > 0.0) ? (spread / risk) : 1.0;
+    if(spreadRatio > m_maxSpreadFrac)
     {
-        PrintFormat("[V3 Executor] ABORT: spread %.5f > %.0f%% of stop %.5f.",
-                    spread, m_maxSpreadFrac * 100.0, risk);
+        PrintFormat("[V3 Executor] ABORT: spread %.5f (%.0f%% of stop %.5f) > max %.0f%%.",
+                    spread, spreadRatio * 100.0, risk, m_maxSpreadFrac * 100.0);
         return false;
     }
+    if(spreadRatio > 0.15)
+        PrintFormat("[V3 Executor] INFO: spread %.5f = %.0f%% of stop (accepted).",
+                    spread, spreadRatio * 100.0);
 
     // Size on final stop
     double total_lot = CalculateLotSize(type, price, s.stopLoss);
