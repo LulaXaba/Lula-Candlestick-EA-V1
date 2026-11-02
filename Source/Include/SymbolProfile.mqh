@@ -38,6 +38,15 @@ struct SSymbolProfile {
    double  zz_depth_atr_mult_h4;
    double  zz_depth_atr_mult_d1;
    double  zz_depth_atr_mult_w1;
+
+   // --- Stop-size bounds (Item 8) ---
+   // Stops narrower than min or wider than max are rejected in CDecisionTree
+   double  stop_min_atr;   // smallest valid stop expressed as a multiple of LTF ATR
+   double  stop_max_atr;   // largest  valid stop expressed as a multiple of LTF ATR
+
+   // --- Spread gate (Item 8) ---
+   // Trade is aborted if spread > stop_max_spread_frac * stop_distance
+   double  stop_max_spread_frac;
 };
 
 class CSymbolProfile {
@@ -87,6 +96,9 @@ inline SSymbolProfile CSymbolProfile::Get(const string symbol) {
          cache.zz_depth_atr_mult_h4  = 2.0;   // (~30 pips on H1 ATR)
          cache.zz_depth_atr_mult_d1  = 3.5;   // (~55 pips, daily swings)
          cache.zz_depth_atr_mult_w1  = 5.0;   // (~80 pips, weekly swings)
+         cache.stop_min_atr          = 1.0;
+         cache.stop_max_atr          = 4.0;
+         cache.stop_max_spread_frac  = 0.15;
          break;
 
       case SYM_SPIKY_SYNTH:               // Boom / Crash
@@ -109,6 +121,9 @@ inline SSymbolProfile CSymbolProfile::Get(const string symbol) {
          cache.zz_depth_atr_mult_h4  = 15.0;
          cache.zz_depth_atr_mult_d1  = 40.0;
          cache.zz_depth_atr_mult_w1  = 100.0;
+         cache.stop_min_atr          = 1.5;
+         cache.stop_max_atr          = 3.0;
+         cache.stop_max_spread_frac  = 0.15;
          break;
 
       case SYM_VOLATILE_SYNTH:            // VIX75, etc.
@@ -124,6 +139,9 @@ inline SSymbolProfile CSymbolProfile::Get(const string symbol) {
          cache.zz_depth_atr_mult_h4  = 15.0;
          cache.zz_depth_atr_mult_d1  = 40.0;
          cache.zz_depth_atr_mult_w1  = 100.0;
+         cache.stop_min_atr          = 1.0;
+         cache.stop_max_atr          = 3.0;
+         cache.stop_max_spread_frac  = 0.15;
          break;
 
       case SYM_METAL:                     // XAU, XAG
@@ -139,6 +157,9 @@ inline SSymbolProfile CSymbolProfile::Get(const string symbol) {
          cache.zz_depth_atr_mult_h4  = 10.0;
          cache.zz_depth_atr_mult_d1  = 25.0;
          cache.zz_depth_atr_mult_w1  = 60.0;
+         cache.stop_min_atr          = 1.0;
+         cache.stop_max_atr          = 4.0;
+         cache.stop_max_spread_frac  = 0.15;
          break;
 
       default:
@@ -155,6 +176,9 @@ inline SSymbolProfile CSymbolProfile::Get(const string symbol) {
          cache.zz_depth_atr_mult_h4  = 6.0;
          cache.zz_depth_atr_mult_d1  = 18.0;
          cache.zz_depth_atr_mult_w1  = 45.0;
+         cache.stop_min_atr          = 1.0;
+         cache.stop_max_atr          = 4.0;
+         cache.stop_max_spread_frac  = 0.15;
          break;
    }
    cached_for = symbol;

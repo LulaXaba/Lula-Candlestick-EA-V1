@@ -61,11 +61,13 @@ public:
 
     double GetDiscountThreshold() {
         if(m_lastStrongLow == 0 || m_lastWeakHigh == 0) return 0;
-        return m_lastWeakHigh - ((m_lastWeakHigh - m_lastStrongLow) * (m_pullbackPct / 100.0));
+        // Equilibrium = 50% of the range  (matches PriceInDiscountZone)
+        return m_lastStrongLow + (m_lastWeakHigh - m_lastStrongLow) * 0.5;
     }
     double GetPremiumThreshold() {
         if(m_lastStrongHigh == 0 || m_lastWeakLow == 0) return 0;
-        return m_lastWeakLow + ((m_lastStrongHigh - m_lastWeakLow) * (m_pullbackPct / 100.0));
+        // Equilibrium = 50% of the range  (matches PriceInPremiumZone)
+        return m_lastWeakLow + (m_lastStrongHigh - m_lastWeakLow) * 0.5;
     }
 };
 
@@ -161,24 +163,20 @@ void C_MarketStructureSensor::EvaluateInstitutionalStrength() {
     }
 }
 
-bool C_MarketStructureSensor::PriceInDiscountZone(double current_price)
+bool C_MarketStructureSensor::PriceInDiscountZone(double p)
 {
+    // [Patch 2] True only in the lower 50% of the bullish dealing range
     if(m_lastStrongLow == 0 || m_lastWeakHigh == 0) return false;
     double range = m_lastWeakHigh - m_lastStrongLow;
-    if(range <= 0) return false; // Safety check
-    
-    double threshold = m_lastWeakHigh - (range * (m_pullbackPct / 100.0));
-    return current_price <= threshold; 
+    return (range > 0 && p <= m_lastStrongLow + range * 0.5);
 }
 
-bool C_MarketStructureSensor::PriceInPremiumZone(double current_price)
+bool C_MarketStructureSensor::PriceInPremiumZone(double p)
 {
+    // [Patch 2] True only in the upper 50% of the bearish dealing range
     if(m_lastStrongHigh == 0 || m_lastWeakLow == 0) return false;
     double range = m_lastStrongHigh - m_lastWeakLow;
-    if(range <= 0) return false; // Safety check
-    
-    double threshold = m_lastWeakLow + (range * (m_pullbackPct / 100.0));
-    return current_price >= threshold; 
+    return (range > 0 && p >= m_lastWeakLow + range * 0.5);
 }
 
 ENUM_MACRO_PHASE C_MarketStructureSensor::GetMacroPhase()

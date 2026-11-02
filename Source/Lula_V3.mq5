@@ -66,9 +66,13 @@ int OnInit()
     g_zzHTF = new CZigZagEngine();
     g_zzMTF = new CZigZagEngine();
     g_zzLTF = new CZigZagEngine();
-    g_zzHTF.Init(_Symbol, inp_HTF);              // H4 profile depth (no override)
-    g_zzMTF.Init(_Symbol, inp_MTF, 1000, 2.5);  // [Patch #1] MTF: 2.5 × own-TF ATR (starting point)
-    g_zzLTF.Init(_Symbol, inp_LTF, 1000, 2.0);  // [Patch #1] LTF: 2.0 × own-TF ATR (starting point)
+    if(!g_zzHTF.Init(_Symbol, inp_HTF) ||
+       !g_zzMTF.Init(_Symbol, inp_MTF, 1000, 2.5) ||
+       !g_zzLTF.Init(_Symbol, inp_LTF, 1000, 2.0))
+    {
+        Print("FATAL: ZigZag Engine failed to initialize.");
+        return INIT_FAILED;
+    }
 
     // 2. SMC Sensors
     g_structureHTF = new C_MarketStructureSensor();
@@ -80,6 +84,10 @@ int OnInit()
     g_structureLTF.Init(_Symbol, inp_LTF, inp_MinPullbackPct);
     g_poiSensorMTF.Init(_Symbol, inp_MTF);
     g_liquidityMTF.Init(_Symbol, inp_MTF, inp_LTF); // [Fix #3] pass LTF for sweep expiry
+
+    // [Patch 1] Seed historical POI zones — without this the sensor starts with zero zones
+    // and only picks up new OBs as they form during the run.
+    g_poiSensorMTF.Backfill(300);
 
     // 3. State & Execution Layers
     g_stateMachine = new C_StateMachine();
@@ -109,7 +117,8 @@ void OnDeinit(const int reason)
         C_VisualRenderer::Clear("MTF_ZZ_");
         C_VisualRenderer::Clear("POI_");
         C_VisualRenderer::Clear("OB_");
-        C_VisualRenderer::Clear("HTF_Equilibrium_50");
+        C_VisualRenderer::Clear("HTF_Discount_Threshold");
+        C_VisualRenderer::Clear("HTF_Premium_Threshold");
     }
 
     if(CheckPointer(g_zzHTF))        delete g_zzHTF;
@@ -168,7 +177,15 @@ void OnTick()
     g_zzLTF.Update();
     g_structureLTF.Update(g_zzLTF);
 
-    // 6. Decision Matrix — evaluate if all LTF trigger conditions are met
+    // 6. Runner management — move Runner to breakeven once Day Trade closes
+    //    Must run BEFORE HasOpenPosition check so the BE move fires even when
+    //    only the Runner remains (HasOpenPosition would still return true).
+    g_executor.ManageRunner();
+
+    // 7. Open-position guard — don't latch, evaluate, or burn a POI while in a trade
+    if(g_executor.HasOpenPosition()) return;
+
+    // 8. Decision Matrix — evaluate if all LTF trigger conditions are met
     STradeSetup setup = g_decisionTree.Evaluate(
         currentState,
         g_structureHTF,
@@ -177,7 +194,7 @@ void OnTick()
         g_liquidityMTF
     );
 
-    // 7. Execution — ALWAYS consume the setup (POI mitigated on any attempt, success or not)
+    // 9. Execution — ALWAYS consume the setup (POI mitigated on any attempt, success or not)
     //    [Fix #1] The consume-on-attempt pattern: deactivate before checking result.
     if(setup.direction != SIGNAL_NONE)
     {

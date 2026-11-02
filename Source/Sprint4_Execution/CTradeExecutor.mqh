@@ -28,6 +28,8 @@ private:
     ulong             m_magicNumber;
     ENUM_ASSET_CLASS  m_assetClass;
     int               m_ticketsOpened;    // [Fix #1] tracks how many tickets sent this execution
+    double            m_minRR;            // [Patch 6] minimum reward:risk ratio; default 1.5
+    double            m_maxSpreadFrac;    // [Item 8] max allowed spread as fraction of stop risk (default 0.15)
 
     ENUM_ASSET_CLASS  DetectAssetClass();
     void              ApplyRiskProfile(double requested_risk);
@@ -40,7 +42,6 @@ private:
     bool              EnforceStopLevel(ENUM_ORDER_TYPE type, double price, double &sl, double &tp, int digits, double point);
     bool              SendOrder(ENUM_ORDER_TYPE type, double vol, double price,
                                 double sl, double tp, const string comment);
-    bool              HasOpenPosition();   // [Fix #5]
 
 public:
                       C_TradeExecutor();
@@ -49,20 +50,28 @@ public:
     bool              Init(string symbol, double risk_percent, ulong magic_number);
     bool              ExecuteSplitTrade(const STradeSetup &setup);
     int               TicketsOpened() const { return m_ticketsOpened; } // [Fix #1]
+    bool              HasOpenPosition();   // [Patch 6] public — guard before Evaluate in OnTick
+    void              ManageRunner();      // [Patch 6] breakeven management for the Runner ticket
 };
 
 C_TradeExecutor::C_TradeExecutor()
     : m_symbol(""), m_riskPercent(0.5), m_maxMarginPct(0.20),
       m_maxLots(0.0), m_magicNumber(777777), m_assetClass(ASSET_FOREX),
-      m_ticketsOpened(0) {}
+      m_ticketsOpened(0), m_minRR(1.5), m_maxSpreadFrac(0.15) {}
 
 ENUM_ASSET_CLASS C_TradeExecutor::DetectAssetClass()
 {
-    if(StringFind(m_symbol, "Volatility") >= 0 || StringFind(m_symbol, "VIX")   >= 0) return ASSET_VOLATILITY;
-    if(StringFind(m_symbol, "Boom")       >= 0 || StringFind(m_symbol, "Crash") >= 0) return ASSET_BOOMCRASH;
-    if(StringFind(m_symbol, "Step")       >= 0 || StringFind(m_symbol, "Jump")  >= 0 ||
-       StringFind(m_symbol, "Range")      >= 0)                                        return ASSET_OTHER_SYNTH;
-    return ASSET_FOREX;
+    // [Patch 7] Single source of truth: delegate to CSymbolProfile so there is
+    // no divergence between the executor's classifier and the profile system.
+    // (Old string-scan missed EURUSD.m, Step Index, Jump Index, etc.)
+    switch(CSymbolProfile::Get(m_symbol).cls)
+    {
+        case SYM_SPIKY_SYNTH:    return ASSET_BOOMCRASH;
+        case SYM_VOLATILE_SYNTH: return ASSET_VOLATILITY;
+        case SYM_FOREX:
+        case SYM_METAL:          return ASSET_FOREX;
+        default:                 return ASSET_OTHER_SYNTH;
+    }
 }
 
 void C_TradeExecutor::ApplyRiskProfile(double requested_risk)
@@ -86,6 +95,9 @@ bool C_TradeExecutor::Init(string symbol, double risk_percent, ulong magic_numbe
     m_magicNumber = magic_number;
     m_assetClass  = DetectAssetClass();
     ApplyRiskProfile(risk_percent);
+
+    SSymbolProfile prof = CSymbolProfile::Get(m_symbol);
+    m_maxSpreadFrac = (prof.stop_max_spread_frac > 0.0) ? prof.stop_max_spread_frac : 0.15;
 
     m_trade.SetExpertMagicNumber(m_magicNumber);
     m_trade.SetDeviationInPoints(10);
@@ -129,16 +141,10 @@ double C_TradeExecutor::GetLossPerLot(ENUM_ORDER_TYPE type, double entry, double
     if(tickMath <= 0.0) return calc;
     if(calc     <= 0.0) return tickMath;
 
-    // In the Strategy Tester the broker engine may price synthetics at a different
-    // scale than symbol tick math (e.g. 10,000× for Boom/Crash).  Trust the tester's
-    // own OrderCalcProfit figure so that sizing is consistent with how the tester
-    // will actually settle the trade.
-    if(MQLInfoInteger(MQL_TESTER) && calc > 0.0)
-    {
-        Print("[V3 Executor] TESTER: sizing on OrderCalcProfit to match tester settlement.");
-        return calc;
-    }
-
+    // [Patch 5] MQL_TESTER branch removed: OrderCalcProfit is 10,000× tick math
+    // on Deriv Synthetics in the tester, producing sub-minimum lots that abort
+    // every synthetic trade. Cross-check still runs in live; validate on EURUSD
+    // first, then test Synthetics with a corrected custom-symbol spec.
     double ratio = calc / tickMath;
     if(ratio > 1.05 || ratio < 0.95)
     {
@@ -184,11 +190,14 @@ double C_TradeExecutor::CalculateLotSize(ENUM_ORDER_TYPE type, double entry, dou
     double loss_per_lot = GetLossPerLot(type, entry, sl);
     double margin_lot   = GetMarginPerLot(type, entry);
 
-    PrintFormat("[V3 AUDIT] %s | entry=%.5f sl=%.5f dist=%.5f | tv=%.8f ts=%.8f contract=%.2f",
+    PrintFormat("[V3 AUDIT] %s | entry=%.5f sl=%.5f dist=%.5f | tv=%.8f tvProfit=%.8f ts=%.8f contract=%.2f calcMode=%d volMin=%.4f",
                 m_symbol, entry, sl, MathAbs(entry - sl),
                 SymbolInfoDouble(m_symbol, SYMBOL_TRADE_TICK_VALUE),
+                SymbolInfoDouble(m_symbol, SYMBOL_TRADE_TICK_VALUE_PROFIT),
                 SymbolInfoDouble(m_symbol, SYMBOL_TRADE_TICK_SIZE),
-                SymbolInfoDouble(m_symbol, SYMBOL_TRADE_CONTRACT_SIZE));
+                SymbolInfoDouble(m_symbol, SYMBOL_TRADE_CONTRACT_SIZE),
+                (int)SymbolInfoInteger(m_symbol, SYMBOL_TRADE_CALC_MODE),
+                SymbolInfoDouble(m_symbol, SYMBOL_VOLUME_MIN));
     PrintFormat("[V3 AUDIT] risk$=%.2f lossPerLot=%.4f marginPerLot=%.4f freeMargin=%.2f lev=%d",
                 risk_money, loss_per_lot, margin_lot, free_m, (int)AccountInfoInteger(ACCOUNT_LEVERAGE));
 
@@ -323,6 +332,29 @@ bool C_TradeExecutor::ExecuteSplitTrade(const STradeSetup &setup)
     EnforceStopLevel(type, price, s.stopLoss, s.tpLocal,  digits, point);
     EnforceStopLevel(type, price, s.stopLoss, s.tpMacro,  digits, point);
 
+    // [Patch 6] R:R gate — reject trades where the target is on the wrong side or below minimum R:R
+    {
+        if( is_long && s.tpLocal <= price) { Print("[V3 Executor] ABORT: TP on wrong side of entry."); return false; }
+        if(!is_long && s.tpLocal >= price) { Print("[V3 Executor] ABORT: TP on wrong side of entry."); return false; }
+        double risk = MathAbs(price - s.stopLoss);
+        double rew  = MathAbs(s.tpLocal - price);
+        if(risk <= 0.0 || rew / risk < m_minRR)
+        {
+            PrintFormat("[V3 Executor] ABORT: RR %.2f < min %.2f. Trade skipped.", risk > 0 ? rew / risk : 0.0, m_minRR);
+            return false;
+        }
+    }
+
+    // [Item 8] Spread gate — abort if spread exceeds allowed fraction of stop risk
+    double spread = SymbolInfoDouble(m_symbol, SYMBOL_ASK) - SymbolInfoDouble(m_symbol, SYMBOL_BID);
+    double risk_spread = MathAbs(price - s.stopLoss);
+    if(spread > m_maxSpreadFrac * risk_spread)
+    {
+        PrintFormat("[V3 Executor] ABORT: spread %.5f > %.0f%% of stop %.5f.",
+                    spread, m_maxSpreadFrac * 100.0, risk_spread);
+        return false;
+    }
+
     // 4. Size on the FINAL stop (after widening)
     double total_lot = CalculateLotSize(type, price, s.stopLoss);
     if(total_lot <= 0.0) return false;
@@ -354,4 +386,46 @@ bool C_TradeExecutor::ExecuteSplitTrade(const STradeSetup &setup)
 
     return true;  // at least Ticket 1 filled
 }
+
+// [Patch 6] Move the Runner ticket to breakeven once the Day Trade ticket has closed.
+// Called from OnTick BEFORE Evaluate so the guard fires on the very first tick after fill.
+// Note: MT5 truncates comments to 31 chars. "POI_Continuation_Long (Runner)" = 30 chars — OK.
+// If model names are renamed, keep the "(Runner)" suffix to at most 9 trailing chars.
+void C_TradeExecutor::ManageRunner()
+{
+    int   n  = 0;
+    ulong rt = 0;
+
+    for(int i = PositionsTotal() - 1; i >= 0; i--)
+    {
+        ulong t = PositionGetTicket(i);
+        if(t == 0) continue;
+        if(PositionGetString(POSITION_SYMBOL)        != m_symbol ||
+           (ulong)PositionGetInteger(POSITION_MAGIC) != m_magicNumber) continue;
+        n++;
+        if(StringFind(PositionGetString(POSITION_COMMENT), "(Runner)") >= 0) rt = t;
+    }
+
+    // Only act when the Runner is the sole surviving ticket (Day Trade already closed)
+    if(n != 1 || rt == 0 || !PositionSelectByTicket(rt)) return;
+
+    double open = PositionGetDouble(POSITION_PRICE_OPEN);
+    double sl   = PositionGetDouble(POSITION_SL);
+    double tp   = PositionGetDouble(POSITION_TP);
+    bool   buy  = (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY);
+
+    // Already at breakeven or beyond — nothing to do
+    if((buy && sl >= open) || (!buy && sl > 0.0 && sl <= open)) return;
+
+    // Not yet in profit — wait
+    double px = SymbolInfoDouble(m_symbol, buy ? SYMBOL_BID : SYMBOL_ASK);
+    if((buy && px <= open) || (!buy && px >= open)) return;
+
+    int digits = (int)SymbolInfoInteger(m_symbol, SYMBOL_DIGITS);
+    if(m_trade.PositionModify(rt, NormalizeDouble(open, digits), tp))
+        PrintFormat("[V3 Runner] Ticket %I64u moved to breakeven (%.5f).", rt, open);
+    else
+        PrintFormat("[V3 Runner] BE move failed. Retcode=%u", m_trade.ResultRetcode());
+}
+
 #endif

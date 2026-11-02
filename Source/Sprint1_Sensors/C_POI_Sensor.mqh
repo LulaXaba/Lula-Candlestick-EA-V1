@@ -37,7 +37,8 @@ private:
         if(m_atrHandle == INVALID_HANDLE) return 0.0;
         double atr[];
         ArrayResize(atr, 0);
-        if(CopyBuffer(m_atrHandle, 0, 0, 1, atr) > 0) return atr[0];
+        // [Closed-bar rule] shift 1 — consistent with every other structural read
+        if(CopyBuffer(m_atrHandle, 0, 1, 1, atr) > 0) return atr[0];
         return 0.0;
     }
 
@@ -203,7 +204,64 @@ public:
     }
 
     int             GetPOICount() { return ArraySize(m_zones); }
-    SPOI            GetPOI(int i) { return m_zones[i]; }
+    SPOI            GetPOI(int i) { static SPOI empty; if(i < 0 || i >= ArraySize(m_zones)) return empty; return m_zones[i]; }
+
+    // --- Historical seed: build zones from the last `bars` closed MTF bars ---
+    // Called once from OnInit after Init(). Uses current-bar ATR as an approximation
+    // (acceptable for seeding; live Update() refines from there).
+    void            Backfill(const int bars = 300)
+    {
+        if(m_atrHandle == INVALID_HANDLE) return;
+        double atr = GetATR();
+        if(atr <= 0.0) return;
+
+        double o[], c[], h[], l[]; datetime t[];
+        ArraySetAsSeries(o, true); ArraySetAsSeries(c, true);
+        ArraySetAsSeries(h, true); ArraySetAsSeries(l, true);
+        ArraySetAsSeries(t, true);
+
+        int n = bars + 2;
+        if(CopyOpen (m_symbol, m_tf, 1, n, o) < n ||
+           CopyClose(m_symbol, m_tf, 1, n, c) < n ||
+           CopyHigh (m_symbol, m_tf, 1, n, h) < n ||
+           CopyLow  (m_symbol, m_tf, 1, n, l) < n ||
+           CopyTime (m_symbol, m_tf, 1, n, t) < n) return;
+
+        for(int k = bars - 1; k >= 0; k--)          // oldest -> newest
+        {
+            // Bullish POI: strong bullish displacement off a bearish base
+            if(c[k] > o[k] && (c[k] - o[k]) > atr && c[k+1] <= o[k+1] && !ZoneExists(true, t[k+1]))
+            {
+                int s = ArraySize(m_zones); ArrayResize(m_zones, s + 1);
+                m_zones[s].isActive  = true;
+                m_zones[s].isBullish = true;
+                m_zones[s].top       = MathMax(o[k+1], h[k+1]);
+                m_zones[s].bottom    = l[k+1];
+                m_zones[s].time      = t[k+1];
+            }
+            // Bearish POI: strong bearish displacement off a bullish base
+            if(c[k] < o[k] && (o[k] - c[k]) > atr && c[k+1] >= o[k+1] && !ZoneExists(false, t[k+1]))
+            {
+                int s = ArraySize(m_zones); ArrayResize(m_zones, s + 1);
+                m_zones[s].isActive  = true;
+                m_zones[s].isBullish = false;
+                m_zones[s].top       = h[k+1];
+                m_zones[s].bottom    = MathMin(o[k+1], l[k+1]);
+                m_zones[s].time      = t[k+1];
+            }
+            // Chronological mitigation pass
+            for(int i = 0; i < ArraySize(m_zones); i++)
+            {
+                if(!m_zones[i].isActive) continue;
+                if( m_zones[i].isBullish && c[k] < m_zones[i].bottom) m_zones[i].isActive = false;
+                if(!m_zones[i].isBullish && c[k] > m_zones[i].top)    m_zones[i].isActive = false;
+            }
+        }
+
+        int act = 0;
+        for(int i = 0; i < ArraySize(m_zones); i++) if(m_zones[i].isActive) act++;
+        PrintFormat("[V3 POI] Backfill: %d zones total, %d active after %d bars.", ArraySize(m_zones), act, bars);
+    }
 };
 
 #endif // C_POI_SENSOR_MQH
