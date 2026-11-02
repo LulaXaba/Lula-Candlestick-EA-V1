@@ -23,11 +23,19 @@ struct STradeSetup
     ENUM_TRADE_SIGNAL direction;
     double            entryPrice;
     double            stopLoss;
-    double            tpLocal;     // Ticket 1: MTF Target (Day Trade)
-    double            tpMacro;     // Ticket 2: HTF Target (The Runner)
-    string            modelName;   // "POI_Continuation" or "Liquidity_Sweep"
-    datetime          poiTime;     // POI formation time (for one-shot mitigation)
-    double            sweepLevel;  // Swept liquidity level
+    double            tp1;          // NEW — target 1
+    double            tp2;          // NEW — target 2
+    double            tp3;          // NEW — target 3 (runner)
+    double            tpLocal;      // alias for tp1 (back-compat)
+    double            tpMacro;      // alias for tp3 (back-compat)
+    double            atrAtEntry;   // NEW
+    string            modelName;
+    datetime          poiTime;
+    double            sweepLevel;
+    // NEW — tier volume fractions (sum = 1.0)
+    double            volT1;
+    double            volT2;
+    double            volT3;
 };
 
 class C_DecisionTree
@@ -273,16 +281,41 @@ STradeSetup C_DecisionTree::Evaluate(
                 setup.stopLoss = setup.entryPrice - min_risk;
             }
 
-            setup.tpLocal = htf_structure.GetLastWeakHigh();
-            if(setup.tpLocal <= setup.entryPrice)
-            {
-                double risk = setup.entryPrice - setup.stopLoss;
-                setup.tpLocal = setup.entryPrice + risk * 2.0;
-            }
-            setup.tpMacro = setup.tpLocal + (setup.tpLocal - setup.entryPrice);
+            // [PATCH TM-1] — explicit T1/T2/T3 with per-setup volume splits
+            double risk = setup.entryPrice - setup.stopLoss;
+            setup.atrAtEntry = atr;
 
-            PrintFormat("[V3 Execution] %s | Entry %.5f | SL %.5f | TP1 %.5f",
-                        setup.modelName, setup.entryPrice, setup.stopLoss, setup.tpLocal);
+            // T1: structural target (last weak high), fall back to 1.5R
+            double t1Struct = htf_structure.GetLastWeakHigh();
+            if(t1Struct <= 0 || t1Struct <= setup.entryPrice)
+                t1Struct = setup.entryPrice + risk * 1.5;
+            setup.tp1 = t1Struct;
+
+            // T2: 2.5R minimum — never below T1
+            double t2Min = setup.entryPrice + risk * 2.5;
+            setup.tp2 = MathMax(t2Min, setup.tp1 + risk * 0.5);
+
+            // T3: runner — 4R or HTF macro structure, whichever is further
+            double t3R = setup.entryPrice + risk * 4.0;
+            setup.tp3 = t3R;
+
+            // Back-compat aliases
+            setup.tpLocal = setup.tp1;
+            setup.tpMacro = setup.tp3;
+
+            // Volume splits by setup type
+            if(setup.modelName == "Liquidity_Sweep_Long")
+            { setup.volT1 = 0.50; setup.volT2 = 0.30; setup.volT3 = 0.20; }
+            else if(setup.modelName == "POI_Proximity_Long")
+            { setup.volT1 = 0.30; setup.volT2 = 0.40; setup.volT3 = 0.30; }
+            else  // POI_Continuation_Long
+            { setup.volT1 = 0.40; setup.volT2 = 0.30; setup.volT3 = 0.30; }
+
+            PrintFormat("[V3 Execution] %s | Entry %.5f | SL %.5f | T1 %.5f (%.0f%%) | T2 %.5f (%.0f%%) | T3 %.5f (%.0f%%)",
+                        setup.modelName, setup.entryPrice, setup.stopLoss,
+                        setup.tp1, setup.volT1*100,
+                        setup.tp2, setup.volT2*100,
+                        setup.tp3, setup.volT3*100);
             s_longChochConfirmed = false;
             s_lastAttemptBarTime = current_bar_time;
         }
@@ -407,16 +440,41 @@ STradeSetup C_DecisionTree::Evaluate(
                 setup.stopLoss = setup.entryPrice + min_risk;
             }
 
-            setup.tpLocal = htf_structure.GetLastWeakLow();
-            if(setup.tpLocal >= setup.entryPrice || setup.tpLocal == 0)
-            {
-                double risk = setup.stopLoss - setup.entryPrice;
-                setup.tpLocal = setup.entryPrice - risk * 2.0;
-            }
-            setup.tpMacro = setup.tpLocal - (setup.entryPrice - setup.tpLocal);
+            // [PATCH TM-1] — explicit T1/T2/T3 with per-setup volume splits
+            double risk = setup.stopLoss - setup.entryPrice;
+            setup.atrAtEntry = atr;
 
-            PrintFormat("[V3 Execution] %s | Entry %.5f | SL %.5f | TP1 %.5f",
-                        setup.modelName, setup.entryPrice, setup.stopLoss, setup.tpLocal);
+            // T1: structural target (last weak low), fall back to 1.5R
+            double t1Struct = htf_structure.GetLastWeakLow();
+            if(t1Struct <= 0 || t1Struct >= setup.entryPrice)
+                t1Struct = setup.entryPrice - risk * 1.5;
+            setup.tp1 = t1Struct;
+
+            // T2: 2.5R minimum — never below T1
+            double t2Min = setup.entryPrice - risk * 2.5;
+            setup.tp2 = MathMin(t2Min, setup.tp1 - risk * 0.5);
+
+            // T3: runner — 4R or HTF macro structure, whichever is further
+            double t3R = setup.entryPrice - risk * 4.0;
+            setup.tp3 = t3R;
+
+            // Back-compat aliases
+            setup.tpLocal = setup.tp1;
+            setup.tpMacro = setup.tp3;
+
+            // Volume splits by setup type
+            if(setup.modelName == "Liquidity_Sweep_Short")
+            { setup.volT1 = 0.50; setup.volT2 = 0.30; setup.volT3 = 0.20; }
+            else if(setup.modelName == "POI_Proximity_Short")
+            { setup.volT1 = 0.30; setup.volT2 = 0.40; setup.volT3 = 0.30; }
+            else  // POI_Continuation_Short
+            { setup.volT1 = 0.40; setup.volT2 = 0.30; setup.volT3 = 0.30; }
+
+            PrintFormat("[V3 Execution] %s | Entry %.5f | SL %.5f | T1 %.5f (%.0f%%) | T2 %.5f (%.0f%%) | T3 %.5f (%.0f%%)",
+                        setup.modelName, setup.entryPrice, setup.stopLoss,
+                        setup.tp1, setup.volT1*100,
+                        setup.tp2, setup.volT2*100,
+                        setup.tp3, setup.volT3*100);
             s_shortChochConfirmed = false;
             s_lastAttemptBarTime  = current_bar_time;
         }

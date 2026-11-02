@@ -5,15 +5,10 @@
 #ifndef CTRADEEXECUTOR_MQH
 #define CTRADEEXECUTOR_MQH
 
-// ---------------------------------------------------------------
-// NOTE: The legacy V1/V2 CTradeExecutor class has been removed.
-// V3 C_TradeExecutor is the sole executor in this file.
-// DTOs.mqh is not required by V3 — include removed to avoid bloat.
-// ---------------------------------------------------------------
-
 #include <Trade\Trade.mqh>
 #include "..\Include\Defines.mqh"
 #include "CDecisionTree.mqh"
+#include "C_TradeManager.mqh"          // [PATCH X1] 3-tier manager
 
 enum ENUM_ASSET_CLASS { ASSET_FOREX, ASSET_VOLATILITY, ASSET_BOOMCRASH, ASSET_OTHER_SYNTH };
 
@@ -22,14 +17,18 @@ class C_TradeExecutor
 private:
     CTrade            m_trade;
     string            m_symbol;
-    double            m_riskPercent;      // effective risk after profile cap
-    double            m_maxMarginPct;     // max % of free margin one setup may consume
-    double            m_maxLots;          // hard lot ceiling per setup (total)
+    double            m_riskPercent;
+    double            m_maxMarginPct;
+    double            m_maxLots;
     ulong             m_magicNumber;
     ENUM_ASSET_CLASS  m_assetClass;
-    int               m_ticketsOpened;    // [Fix #1] tracks how many tickets sent this execution
-    double            m_minRR;            // [Patch 6] minimum reward:risk ratio; default 1.5
-    double            m_maxSpreadFrac;    // [Item 8] max allowed spread as fraction of stop risk (default 0.15)
+    int               m_ticketsOpened;
+    double            m_minRR;
+    double            m_maxSpreadFrac;
+    int               m_atrHandle;              // [PATCH X2] local ATR for tier reg
+
+    C_TradeManager   *m_manager;                // [PATCH X1] optional; NULL → legacy 2-ticket
+    ENUM_TIMEFRAMES   m_ltf;                    // [PATCH X3] for entryTime grouping
 
     ENUM_ASSET_CLASS  DetectAssetClass();
     void              ApplyRiskProfile(double requested_risk);
@@ -40,30 +39,48 @@ private:
     double            CalculateLotSize(ENUM_ORDER_TYPE type, double entry, double sl);
     bool              HasMargin(ENUM_ORDER_TYPE type, double vol, double price);
     bool              EnforceStopLevel(ENUM_ORDER_TYPE type, double price, double &sl, double &tp, int digits, double point);
-    bool              SendOrder(ENUM_ORDER_TYPE type, double vol, double price,
+    double            GetATR();                 // [PATCH X2]
+
+    // [PATCH X4] SendOrder now returns position id (0 = failure) so manager can register.
+    ulong             SendOrder(ENUM_ORDER_TYPE type, double vol, double price,
                                 double sl, double tp, const string comment);
 
 public:
                       C_TradeExecutor();
-                     ~C_TradeExecutor() {}
+                     ~C_TradeExecutor();
 
-    bool              Init(string symbol, double risk_percent, ulong magic_number);
+    bool              Init(string symbol, double risk_percent, ulong magic_number,
+                           ENUM_TIMEFRAMES ltf = PERIOD_M5);   // [PATCH X3]
     bool              ExecuteSplitTrade(const STradeSetup &setup);
-    int               TicketsOpened() const { return m_ticketsOpened; } // [Fix #1]
-    bool              HasOpenPosition();   // [Patch 6] public — guard before Evaluate in OnTick
-    void              ManageRunner();      // [Patch 6] breakeven management for the Runner ticket
+    int               TicketsOpened() const { return m_ticketsOpened; }
+    bool              HasOpenPosition();
+    void              ManageRunner();   // legacy path only; no-op when manager is set
+
+    // [PATCH X1]
+    void              SetTradeManager(C_TradeManager *mgr) { m_manager = mgr; }
 };
 
 C_TradeExecutor::C_TradeExecutor()
     : m_symbol(""), m_riskPercent(0.5), m_maxMarginPct(0.20),
       m_maxLots(0.0), m_magicNumber(777777), m_assetClass(ASSET_FOREX),
-      m_ticketsOpened(0), m_minRR(1.5), m_maxSpreadFrac(0.15) {}
+      m_ticketsOpened(0), m_minRR(1.5), m_maxSpreadFrac(0.15),
+      m_atrHandle(INVALID_HANDLE), m_manager(NULL), m_ltf(PERIOD_M5) {}
+
+C_TradeExecutor::~C_TradeExecutor()
+{
+    if(m_atrHandle != INVALID_HANDLE) IndicatorRelease(m_atrHandle);
+}
+
+double C_TradeExecutor::GetATR()
+{
+    if(m_atrHandle == INVALID_HANDLE) return 0.0;
+    double a[];
+    if(CopyBuffer(m_atrHandle, 0, 1, 1, a) > 0) return a[0];
+    return 0.0;
+}
 
 ENUM_ASSET_CLASS C_TradeExecutor::DetectAssetClass()
 {
-    // [Patch 7] Single source of truth: delegate to CSymbolProfile so there is
-    // no divergence between the executor's classifier and the profile system.
-    // (Old string-scan missed EURUSD.m, Step Index, Jump Index, etc.)
     switch(CSymbolProfile::Get(m_symbol).cls)
     {
         case SYM_SPIKY_SYNTH:    return ASSET_BOOMCRASH;
@@ -87,17 +104,23 @@ void C_TradeExecutor::ApplyRiskProfile(double requested_risk)
     m_riskPercent = MathMin(MathMax(requested_risk, 0.0), MathMin(cap, 1.0));
 }
 
-bool C_TradeExecutor::Init(string symbol, double risk_percent, ulong magic_number)
+// [PATCH X3] Init now takes an LTF so the executor can stamp entryTime consistently
+bool C_TradeExecutor::Init(string symbol, double risk_percent, ulong magic_number,
+                           ENUM_TIMEFRAMES ltf)
 {
     if(symbol == "" || risk_percent <= 0.0) return false;
 
     m_symbol      = symbol;
     m_magicNumber = magic_number;
+    m_ltf         = ltf;
     m_assetClass  = DetectAssetClass();
     ApplyRiskProfile(risk_percent);
 
     SSymbolProfile prof = CSymbolProfile::Get(m_symbol);
     m_maxSpreadFrac = (prof.stop_max_spread_frac > 0.0) ? prof.stop_max_spread_frac : 0.15;
+
+    if(m_atrHandle != INVALID_HANDLE) IndicatorRelease(m_atrHandle);
+    m_atrHandle = iATR(m_symbol, m_ltf, 14);
 
     m_trade.SetExpertMagicNumber(m_magicNumber);
     m_trade.SetDeviationInPoints(10);
@@ -108,9 +131,10 @@ bool C_TradeExecutor::Init(string symbol, double risk_percent, ulong magic_numbe
         return false;
     }
 
-    PrintFormat("[V3 Executor] Init %s | Class=%d | Risk req=%.2f%% eff=%.2f%% | MaxMargin=%.0f%% | MaxLots=%.2f | Magic=%I64u",
+    PrintFormat("[V3 Executor] Init %s | Class=%d | Risk req=%.2f%% eff=%.2f%% | MaxMargin=%.0f%% | MaxLots=%.2f | Magic=%I64u | LTF=%s | Manager=%s",
                 m_symbol, (int)m_assetClass, risk_percent, m_riskPercent,
-                m_maxMarginPct * 100.0, m_maxLots, m_magicNumber);
+                m_maxMarginPct * 100.0, m_maxLots, m_magicNumber,
+                EnumToString(m_ltf), m_manager ? "ATTACHED" : "none (legacy 2-ticket)");
     return true;
 }
 
@@ -123,7 +147,6 @@ bool C_TradeExecutor::SetSafeFillingMode()
     return true;
 }
 
-// Cross-checked loss per lot: tick math vs OrderCalcProfit, fail closed.
 double C_TradeExecutor::GetLossPerLot(ENUM_ORDER_TYPE type, double entry, double sl)
 {
     double dist = MathAbs(entry - sl);
@@ -141,10 +164,6 @@ double C_TradeExecutor::GetLossPerLot(ENUM_ORDER_TYPE type, double entry, double
     if(tickMath <= 0.0) return calc;
     if(calc     <= 0.0) return tickMath;
 
-    // [Patch 5] MQL_TESTER branch removed: OrderCalcProfit is 10,000× tick math
-    // on Deriv Synthetics in the tester, producing sub-minimum lots that abort
-    // every synthetic trade. Cross-check still runs in live; validate on EURUSD
-    // first, then test Synthetics with a corrected custom-symbol spec.
     double ratio = calc / tickMath;
     if(ratio > 1.05 || ratio < 0.95)
     {
@@ -239,7 +258,6 @@ bool C_TradeExecutor::HasMargin(ENUM_ORDER_TYPE type, double vol, double price)
     return true;
 }
 
-// [Fix — smaller item] Validate BOTH SL and TP against stop level
 bool C_TradeExecutor::EnforceStopLevel(ENUM_ORDER_TYPE type, double price,
                                        double &sl, double &tp, int digits, double point)
 {
@@ -247,18 +265,15 @@ bool C_TradeExecutor::EnforceStopLevel(ENUM_ORDER_TYPE type, double price,
     double stop_level = (double)SymbolInfoInteger(m_symbol, SYMBOL_TRADE_STOPS_LEVEL) * point;
     if(stop_level <= 0.0) return true;
 
-    // SL compliance
     if(MathAbs(price - sl) < stop_level)
         sl = NormalizeDouble(is_long ? price - stop_level : price + stop_level, digits);
 
-    // TP compliance — only adjust if TP is set and too close
     if(tp > 0.0 && MathAbs(price - tp) < stop_level)
         tp = NormalizeDouble(is_long ? price + stop_level : price - stop_level, digits);
 
     return true;
 }
 
-// [Fix #5] Reject if this EA already has a live position on the symbol
 bool C_TradeExecutor::HasOpenPosition()
 {
     for(int i = PositionsTotal() - 1; i >= 0; i--)
@@ -272,46 +287,52 @@ bool C_TradeExecutor::HasOpenPosition()
     return false;
 }
 
-bool C_TradeExecutor::SendOrder(ENUM_ORDER_TYPE type, double vol, double price,
-                                double sl, double tp, const string comment)
+// [PATCH X4] Returns the position id (0 = failure)
+ulong C_TradeExecutor::SendOrder(ENUM_ORDER_TYPE type, double vol, double price,
+                                 double sl, double tp, const string comment)
 {
-    if(!HasMargin(type, vol, price)) return false;
+    if(!HasMargin(type, vol, price)) return 0;
 
     bool ok = (type == ORDER_TYPE_BUY)
               ? m_trade.Buy(vol,  m_symbol, price, sl, tp, comment)
               : m_trade.Sell(vol, m_symbol, price, sl, tp, comment);
 
     if(!ok)
+    {
         PrintFormat("[V3 Executor] %s FAILED. Retcode=%u (%s)", comment,
                     m_trade.ResultRetcode(), m_trade.ResultRetcodeDescription());
-    else
-    {
-        m_ticketsOpened++;  // [Fix #1]
-        ulong ticket = m_trade.ResultOrder();
-        if(ticket == 0) ticket = m_trade.ResultDeal();
-        PrintFormat("[V3 Executor] %s OPEN. Ticket=%I64u Vol=%.2f SL=%.5f TP=%.5f",
-                    comment, ticket, vol, sl, tp);  // [Fix — %I64u for ulong]
+        return 0;
     }
-    return ok;
+
+    m_ticketsOpened++;
+
+    ulong dealTicket = m_trade.ResultDeal();
+    ulong posId      = 0;
+    if(dealTicket > 0 && HistoryDealSelect(dealTicket))
+        posId = (ulong)HistoryDealGetInteger(dealTicket, DEAL_POSITION_ID);
+
+    PrintFormat("[V3 Executor] %s OPEN. Deal=%I64u Pos=%I64u Vol=%.2f SL=%.5f TP=%.5f",
+                comment, dealTicket, posId, vol, sl, tp);
+    return posId;
 }
 
+//====================================================================
+// ExecuteSplitTrade — 3-tier when manager attached, else legacy 2-ticket
+//====================================================================
 bool C_TradeExecutor::ExecuteSplitTrade(const STradeSetup &setup)
 {
-    m_ticketsOpened = 0;  // [Fix #1] reset at top of every attempt
-
+    m_ticketsOpened = 0;
     if(setup.direction == SIGNAL_NONE) return false;
 
-    // [Fix #5] Block stacking on existing live position
     if(HasOpenPosition())
     {
         Print("[V3 Executor] ABORT: EA already holds an open position on this symbol. No stacking.");
         return false;
     }
 
-    const bool is_long   = (setup.direction == SIGNAL_LONG);
+    const bool is_long = (setup.direction == SIGNAL_LONG);
     const ENUM_ORDER_TYPE type = is_long ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
 
-    // 1. Live price — this is what we fill at
     double price = SymbolInfoDouble(m_symbol, is_long ? SYMBOL_ASK : SYMBOL_BID);
     if(price <= 0.0) return false;
 
@@ -324,45 +345,144 @@ bool C_TradeExecutor::ExecuteSplitTrade(const STradeSetup &setup)
     s.tpLocal  = NormalizeDouble(setup.tpLocal,  digits);
     s.tpMacro  = NormalizeDouble(setup.tpMacro,  digits);
 
-    // 2. Directional sanity
+    // [PATCH X5] Populate tp1/2/3 with fallback to legacy aliases
+    s.tp1 = (setup.tp1 > 0.0) ? NormalizeDouble(setup.tp1, digits) : s.tpLocal;
+    s.tp2 = (setup.tp2 > 0.0) ? NormalizeDouble(setup.tp2, digits) : 0.0;
+    s.tp3 = (setup.tp3 > 0.0) ? NormalizeDouble(setup.tp3, digits) : s.tpMacro;
+
+    // Directional sanity
     if( is_long && s.stopLoss >= price) { Print("[V3 Executor] ABORT: Long SL >= price.");  return false; }
     if(!is_long && s.stopLoss <= price) { Print("[V3 Executor] ABORT: Short SL <= price."); return false; }
 
-    // 3. Stop-level compliance for BOTH SL and TP (smaller item fix)
-    EnforceStopLevel(type, price, s.stopLoss, s.tpLocal,  digits, point);
-    EnforceStopLevel(type, price, s.stopLoss, s.tpMacro,  digits, point);
+    // Stop-level: validate SL against tp1 AND tp3 separately, then sync aliases
+    double checkTP1 = s.tp1;
+    double checkTP3 = s.tp3;
+    EnforceStopLevel(type, price, s.stopLoss, checkTP1, digits, point);
+    EnforceStopLevel(type, price, s.stopLoss, checkTP3, digits, point);
+    s.tp1     = checkTP1;
+    s.tp3     = checkTP3;
+    s.tpLocal = s.tp1;
+    s.tpMacro = s.tp3;
 
-    // [Patch 6] R:R gate — reject trades where the target is on the wrong side or below minimum R:R
+    // R:R gate — bound by tp1 (tightest target)
+    if( is_long && s.tp1 <= price) { Print("[V3 Executor] ABORT: TP1 on wrong side of entry."); return false; }
+    if(!is_long && s.tp1 >= price) { Print("[V3 Executor] ABORT: TP1 on wrong side of entry."); return false; }
+    double risk = MathAbs(price - s.stopLoss);
+    double rew  = MathAbs(s.tp1 - price);
+    if(risk <= 0.0 || rew / risk < m_minRR)
     {
-        if( is_long && s.tpLocal <= price) { Print("[V3 Executor] ABORT: TP on wrong side of entry."); return false; }
-        if(!is_long && s.tpLocal >= price) { Print("[V3 Executor] ABORT: TP on wrong side of entry."); return false; }
-        double risk = MathAbs(price - s.stopLoss);
-        double rew  = MathAbs(s.tpLocal - price);
-        if(risk <= 0.0 || rew / risk < m_minRR)
-        {
-            PrintFormat("[V3 Executor] ABORT: RR %.2f < min %.2f. Trade skipped.", risk > 0 ? rew / risk : 0.0, m_minRR);
-            return false;
-        }
-    }
-
-    // [Item 8] Spread gate — abort if spread exceeds allowed fraction of stop risk
-    double spread = SymbolInfoDouble(m_symbol, SYMBOL_ASK) - SymbolInfoDouble(m_symbol, SYMBOL_BID);
-    double risk_spread = MathAbs(price - s.stopLoss);
-    if(spread > m_maxSpreadFrac * risk_spread)
-    {
-        PrintFormat("[V3 Executor] ABORT: spread %.5f > %.0f%% of stop %.5f.",
-                    spread, m_maxSpreadFrac * 100.0, risk_spread);
+        PrintFormat("[V3 Executor] ABORT: RR %.2f < min %.2f. Trade skipped.", risk > 0 ? rew / risk : 0.0, m_minRR);
         return false;
     }
 
-    // 4. Size on the FINAL stop (after widening)
+    // Spread gate
+    double spread = SymbolInfoDouble(m_symbol, SYMBOL_ASK) - SymbolInfoDouble(m_symbol, SYMBOL_BID);
+    if(spread > m_maxSpreadFrac * risk)
+    {
+        PrintFormat("[V3 Executor] ABORT: spread %.5f > %.0f%% of stop %.5f.",
+                    spread, m_maxSpreadFrac * 100.0, risk);
+        return false;
+    }
+
+    // Size on final stop
     double total_lot = CalculateLotSize(type, price, s.stopLoss);
     if(total_lot <= 0.0) return false;
+    double min_lot = SymbolInfoDouble(m_symbol, SYMBOL_VOLUME_MIN);
 
-    // 5. Split into two equal half-lots
-    double min_lot  = SymbolInfoDouble(m_symbol, SYMBOL_VOLUME_MIN);
-    double half_lot = NormalizeVolume(total_lot / 2.0);
-    bool   isSplit  = (half_lot >= min_lot && half_lot > 0.0);
+    // Decide mode — 3-tier requires manager attachment + populated v3 fields
+    bool hasV3Fields = (setup.tp1 > 0.0 && setup.tp2 > 0.0 && setup.tp3 > 0.0);
+    bool use3Tier    = hasV3Fields && (m_manager != NULL);
+
+    if(hasV3Fields && !m_manager)
+        Print("[V3 Executor] WARNING: v3 fields present but manager not attached. Falling back to legacy 2-ticket.");
+
+    datetime entryTime = TimeCurrent();
+    double   atrEntry  = GetATR();
+
+    //------------------------------------------------------------------
+    // 3-TIER PATH
+    //------------------------------------------------------------------
+    if(use3Tier)
+    {
+        double fr[3] = { setup.volT1, setup.volT2, setup.volT3 };
+        if(fr[0] <= 0.0 || fr[1] <= 0.0 || fr[2] <= 0.0)
+        {
+            fr[0] = 0.40; fr[1] = 0.30; fr[2] = 0.30;
+            Print("[V3 Executor] Volume fractions not set. Using defaults 40/30/30.");
+        }
+        double nsum = fr[0] + fr[1] + fr[2];
+        if(nsum > 0.0) { fr[0] /= nsum; fr[1] /= nsum; fr[2] /= nsum; }
+
+        double tps[3]  = { s.tp1, s.tp2, s.tp3 };
+        double vols[3] = { 0.0, 0.0, 0.0 };
+
+        // Can we split into 3 viable tickets?
+        bool canSplit3 = (total_lot >= min_lot * 3.0);
+
+        if(canSplit3)
+        {
+            vols[0] = NormalizeVolume(total_lot * fr[0]);
+            vols[1] = NormalizeVolume(total_lot * fr[1]);
+            vols[2] = NormalizeVolume(total_lot * fr[2]);
+
+            double drift = total_lot - (vols[0] + vols[1] + vols[2]);
+            if(vols[2] + drift >= min_lot)
+                vols[2] = NormalizeVolume(vols[2] + drift);
+
+            // Fold below-minimum tiers into T3
+            for(int i = 0; i < 2; i++)
+                if(vols[i] < min_lot) { vols[2] = NormalizeVolume(vols[2] + vols[i]); vols[i] = 0.0; }
+        }
+        else
+        {
+            vols[2] = total_lot;
+            Print("[V3 Executor] Total lot below 3× minimum. Single T3 (runner) ticket.");
+        }
+
+        for(int tier = 0; tier < 3; tier++)
+        {
+            if(vols[tier] < min_lot) continue;
+
+            double livePx   = SymbolInfoDouble(m_symbol, is_long ? SYMBOL_ASK : SYMBOL_BID);
+            // T1 & T2 use broker TP; T3 has no broker TP — EA manages exit via manager
+            double brokerTP = (tier < 2) ? tps[tier] : 0.0;
+
+            // Re-validate stop level per live price
+            double ticketSL = s.stopLoss;
+            double checkTP  = (brokerTP > 0.0) ? brokerTP : tps[tier];
+            EnforceStopLevel(type, livePx, ticketSL, checkTP, digits, point);
+            if(brokerTP > 0.0) brokerTP = checkTP;
+
+            string tag = s.modelName + " T" + IntegerToString(tier + 1);
+
+            ulong posId = SendOrder(type, vols[tier], livePx, ticketSL, brokerTP, tag);
+            if(posId > 0)
+            {
+                // trendAtEntry = 0 here; manager resolves trend from htf_structure on next bar
+                m_manager.Register(posId, tier + 1, is_long ? +1 : -1,
+                                   livePx, ticketSL, tps[tier],
+                                   0, atrEntry,
+                                   s.modelName, entryTime);
+            }
+            else
+            {
+                // T1 failure is fatal — without the entry ticket we've lost the POI
+                if(tier == 0 && m_ticketsOpened == 0) return false;
+                // T2/T3 failure is non-fatal — allow remaining tiers to continue
+                PrintFormat("[V3 Executor] T%d send failed. Continuing with remaining tiers.", tier + 1);
+            }
+        }
+
+        PrintFormat("[V3 Executor] 3-tier execution complete: %d ticket(s) opened [%s].",
+                    m_ticketsOpened, s.modelName);
+        return (m_ticketsOpened > 0);
+    }
+
+    //------------------------------------------------------------------
+    // LEGACY 2-TICKET PATH (unchanged behavior)
+    //------------------------------------------------------------------
+    double half_lot  = NormalizeVolume(total_lot / 2.0);
+    bool   isSplit   = (half_lot >= min_lot && half_lot > 0.0);
 
     if(!isSplit)
     {
@@ -370,29 +490,26 @@ bool C_TradeExecutor::ExecuteSplitTrade(const STradeSetup &setup)
         Print("[V3 Executor] Half-lot below minimum. Single ticket, full size.");
     }
 
-    // 6. Ticket 1 — Day Trade target
-    if(!SendOrder(type, half_lot, price, s.stopLoss, s.tpLocal, s.modelName + " (Day Trade)"))
+    if(SendOrder(type, half_lot, price, s.stopLoss, s.tpLocal, s.modelName + " (Day Trade)") == 0)
         return false;
 
-    // 7. Ticket 2 — Runner target (only when Ticket 1 filled)
     if(isSplit)
     {
         price = SymbolInfoDouble(m_symbol, is_long ? SYMBOL_ASK : SYMBOL_BID);
         SendOrder(type, half_lot, price, s.stopLoss, s.tpMacro, s.modelName + " (Runner)");
-        // Runner failure is non-fatal: Ticket 1 remains open at half-risk.
-        // Return value is always true once Ticket 1 succeeds so that OnTick
-        // consumes the POI regardless of whether the runner filled.
     }
 
-    return true;  // at least Ticket 1 filled
+    return true;
 }
 
-// [Patch 6] Move the Runner ticket to breakeven once the Day Trade ticket has closed.
-// Called from OnTick BEFORE Evaluate so the guard fires on the very first tick after fill.
-// Note: MT5 truncates comments to 31 chars. "POI_Continuation_Long (Runner)" = 30 chars — OK.
-// If model names are renamed, keep the "(Runner)" suffix to at most 9 trailing chars.
+//====================================================================
+// ManageRunner — legacy path only; superseded by C_TradeManager
+//====================================================================
 void C_TradeExecutor::ManageRunner()
 {
+    // [PATCH X6] When the manager is attached it owns all SL/trailing/exit logic.
+    if(m_manager != NULL) return;
+
     int   n  = 0;
     ulong rt = 0;
 
@@ -406,7 +523,6 @@ void C_TradeExecutor::ManageRunner()
         if(StringFind(PositionGetString(POSITION_COMMENT), "(Runner)") >= 0) rt = t;
     }
 
-    // Only act when the Runner is the sole surviving ticket (Day Trade already closed)
     if(n != 1 || rt == 0 || !PositionSelectByTicket(rt)) return;
 
     double open = PositionGetDouble(POSITION_PRICE_OPEN);
@@ -414,10 +530,8 @@ void C_TradeExecutor::ManageRunner()
     double tp   = PositionGetDouble(POSITION_TP);
     bool   buy  = (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY);
 
-    // Already at breakeven or beyond — nothing to do
     if((buy && sl >= open) || (!buy && sl > 0.0 && sl <= open)) return;
 
-    // Not yet in profit — wait
     double px = SymbolInfoDouble(m_symbol, buy ? SYMBOL_BID : SYMBOL_ASK);
     if((buy && px <= open) || (!buy && px >= open)) return;
 
