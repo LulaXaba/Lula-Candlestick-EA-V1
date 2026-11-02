@@ -34,6 +34,14 @@ input ENUM_TIMEFRAMES   inp_HTF = PERIOD_H4;          // Macro Narrative (Trend)
 input ENUM_TIMEFRAMES   inp_MTF = PERIOD_H1;          // Point of Interest (OB/Liquidity)
 input ENUM_TIMEFRAMES   inp_LTF = PERIOD_M5;          // Sniper Trigger (CHoCH)
 
+input group "--- V3 Tuning & Optimization ---"
+input double            inp_DispMultATR     = 0.60;   // POI displacement multiplier (was 1.00)
+input double            inp_MitigBufATR     = 0.25;   // POI mitigation buffer as ATR fraction
+input double            inp_POITolATR       = 0.30;   // POI entry proximity tolerance as ATR fraction
+input int               inp_ChochLatchBars  = 72;     // CHoCH latch duration in LTF bars (was 24)
+input int               inp_ArmedHoldBars   = 72;     // Armed state duration in LTF bars (was 24)
+input int               inp_SweepExpiryBars = 36;     // Sweep signal expiry in LTF bars (was 12)
+
 input group "--- Visual Mode & Charting ---"
 input bool              inp_ShowVisuals = true;        // Draw SMC Concepts on Chart
 
@@ -82,8 +90,8 @@ int OnInit()
 
     g_structureHTF.Init(_Symbol, inp_HTF, inp_MinPullbackPct);
     g_structureLTF.Init(_Symbol, inp_LTF, inp_MinPullbackPct);
-    g_poiSensorMTF.Init(_Symbol, inp_MTF);
-    g_liquidityMTF.Init(_Symbol, inp_MTF, inp_LTF); // [Fix #3] pass LTF for sweep expiry
+    g_poiSensorMTF.Init(_Symbol, inp_MTF, inp_DispMultATR, inp_MitigBufATR, inp_POITolATR);
+    g_liquidityMTF.Init(_Symbol, inp_MTF, inp_LTF, inp_SweepExpiryBars);
 
     // [Patch 1] Seed historical POI zones — without this the sensor starts with zero zones
     // and only picks up new OBs as they form during the run.
@@ -94,8 +102,8 @@ int OnInit()
     g_decisionTree = new C_DecisionTree();
     g_executor     = new C_TradeExecutor();
 
-    g_stateMachine.Init(_Symbol, inp_HTF, inp_MTF, inp_LTF);
-    g_decisionTree.Init(_Symbol, inp_LTF);
+    g_stateMachine.Init(_Symbol, inp_HTF, inp_MTF, inp_LTF, inp_ArmedHoldBars);
+    g_decisionTree.Init(_Symbol, inp_LTF, inp_ChochLatchBars, inp_POITolATR);
 
     if(!g_executor.Init(_Symbol, inp_RiskPercent, inp_MagicNumber))
     {

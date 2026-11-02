@@ -35,7 +35,8 @@ private:
     datetime            m_lastHtfTime;
     datetime            m_lastMtfTime;
     datetime            m_lastLtfTime; // NEW: Track the LTF for evaluation throttling
-    datetime            m_armedBar;      // [Item 6] bar time when state was armed; holds for 24 LTF bars
+    datetime            m_armedBar;      // [Item 6] bar time when state was armed; holds for m_holdBars LTF bars
+    int                 m_holdBars;      // [PATCH S1] was: const int HOLD_BARS = 24
     
     bool                IsNewBar(ENUM_TIMEFRAMES tf, datetime &last_time);
 
@@ -43,7 +44,7 @@ public:
                         C_StateMachine();
                        ~C_StateMachine();
 
-    bool                Init(string symbol, ENUM_TIMEFRAMES htf, ENUM_TIMEFRAMES mtf, ENUM_TIMEFRAMES ltf);
+    bool                Init(string symbol, ENUM_TIMEFRAMES htf, ENUM_TIMEFRAMES mtf, ENUM_TIMEFRAMES ltf, int holdBars = 72);
     
     // The core traffic controller. Returns the active state to the main EA.
     ENUM_V3_STATE       UpdateAndRoute(
@@ -58,11 +59,12 @@ public:
 };
 
 C_StateMachine::C_StateMachine() : m_symbol(""), m_currentState(STATE_HTF_NARRATIVE), 
-                                   m_lastHtfTime(0), m_lastMtfTime(0), m_lastLtfTime(0), m_armedBar(0) {}
+                                   m_lastHtfTime(0), m_lastMtfTime(0), m_lastLtfTime(0),
+                                   m_armedBar(0), m_holdBars(72) {}
 
 C_StateMachine::~C_StateMachine() {}
 
-bool C_StateMachine::Init(string symbol, ENUM_TIMEFRAMES htf, ENUM_TIMEFRAMES mtf, ENUM_TIMEFRAMES ltf)
+bool C_StateMachine::Init(string symbol, ENUM_TIMEFRAMES htf, ENUM_TIMEFRAMES mtf, ENUM_TIMEFRAMES ltf, int holdBars)
 {
     m_symbol = symbol;
     m_htf = htf;
@@ -70,10 +72,11 @@ bool C_StateMachine::Init(string symbol, ENUM_TIMEFRAMES htf, ENUM_TIMEFRAMES mt
     m_ltf = ltf;
     m_lastLtfTime = 0;
     m_armedBar = 0;
+    m_holdBars = holdBars;
     
     m_currentState = STATE_HTF_NARRATIVE;
-    PrintFormat("[V3 State Machine] Initialized. HTF: %s | MTF: %s | LTF: %s", 
-                EnumToString(m_htf), EnumToString(m_mtf), EnumToString(m_ltf));
+    PrintFormat("[V3 State Machine] Initialized. HTF: %s | MTF: %s | LTF: %s | HoldBars: %d", 
+                EnumToString(m_htf), EnumToString(m_mtf), EnumToString(m_ltf), m_holdBars);
     return true;
 }
 
@@ -123,7 +126,6 @@ ENUM_V3_STATE C_StateMachine::UpdateAndRoute(
         if(c1 <= 0.0) return m_currentState;
 
         datetime ltf_bar   = iTime(m_symbol, m_ltf, 0);
-        const int HOLD_BARS = 24; 
 
         int trend = (htf_structure != NULL) ? htf_structure.GetTrendDirection() : 0;
 
@@ -136,11 +138,11 @@ ENUM_V3_STATE C_StateMachine::UpdateAndRoute(
                 m_armedBar     = 0;
                 PrintFormat("[V3 State Machine] Long armed state CANCELLED: trend flipped (trend=%d).", trend);
             }
-            else if(ltf_bar > 0 && m_armedBar > 0 && (ltf_bar - m_armedBar) > (datetime)(HOLD_BARS * PeriodSeconds(m_ltf)))
+            else if(ltf_bar > 0 && m_armedBar > 0 && (ltf_bar - m_armedBar) > (datetime)(m_holdBars * PeriodSeconds(m_ltf)))
             {
                 m_currentState = STATE_MTF_POI_SEARCH;
                 m_armedBar     = 0;
-                PrintFormat("[V3 State Machine] Long armed state EXPIRED after %d bars.", HOLD_BARS);
+                PrintFormat("[V3 State Machine] Long armed state EXPIRED after %d bars.", m_holdBars);
             }
         }
         else if(m_currentState == STATE_LTF_ARMED_SHORT || m_currentState == STATE_LTF_WAIT_RETRACE_SHORT)
@@ -151,11 +153,11 @@ ENUM_V3_STATE C_StateMachine::UpdateAndRoute(
                 m_armedBar     = 0;
                 PrintFormat("[V3 State Machine] Short armed state CANCELLED: trend flipped (trend=%d).", trend);
             }
-            else if(ltf_bar > 0 && m_armedBar > 0 && (ltf_bar - m_armedBar) > (datetime)(HOLD_BARS * PeriodSeconds(m_ltf)))
+            else if(ltf_bar > 0 && m_armedBar > 0 && (ltf_bar - m_armedBar) > (datetime)(m_holdBars * PeriodSeconds(m_ltf)))
             {
                 m_currentState = STATE_MTF_POI_SEARCH;
                 m_armedBar     = 0;
-                PrintFormat("[V3 State Machine] Short armed state EXPIRED after %d bars.", HOLD_BARS);
+                PrintFormat("[V3 State Machine] Short armed state EXPIRED after %d bars.", m_holdBars);
             }
         }
 
@@ -173,13 +175,14 @@ ENUM_V3_STATE C_StateMachine::UpdateAndRoute(
             lastPrint = TimeCurrent();
         }
 
-        // --- LONG EVALUATION ---
+        // --- LONG EVALUATION --- [PATCH S2]
         if(trend == 1 && m_currentState != STATE_LTF_ARMED_LONG && m_currentState != STATE_LTF_WAIT_RETRACE_LONG)
         {
             bool inBullishPOI = (mtf_poi_sensor != NULL) && mtf_poi_sensor.IsInsideBullishPOI(c1, dummy_sl);
             bool eqlSwept     = (mtf_liquidity != NULL)  && mtf_liquidity.IsEQLSwept(sweep_level);
             
-            if(inDiscount || inBullishPOI || eqlSwept)
+            if(inBullishPOI || eqlSwept ||
+               (inDiscount && mtf_poi_sensor != NULL && mtf_poi_sensor.GetActiveBullCount() > 0))
             {
                 PrintFormat("[V3 State Machine] %s BULLISH Trend + Opportunity Found. Arming %s for Long Triggers.", EnumToString(m_htf), EnumToString(m_ltf));
                 m_currentState = STATE_LTF_ARMED_LONG;
@@ -187,13 +190,14 @@ ENUM_V3_STATE C_StateMachine::UpdateAndRoute(
             }
         }
         
-        // --- SHORT EVALUATION ---
+        // --- SHORT EVALUATION --- [PATCH S2]
         if(trend == -1 && m_currentState != STATE_LTF_ARMED_SHORT && m_currentState != STATE_LTF_WAIT_RETRACE_SHORT)
         {
             bool inBearishPOI = (mtf_poi_sensor != NULL) && mtf_poi_sensor.IsInsideBearishPOI(c1, dummy_sl);
             bool eqhSwept     = (mtf_liquidity != NULL)  && mtf_liquidity.IsEQHSwept(sweep_level);
             
-            if(inPremium || inBearishPOI || eqhSwept)
+            if(inBearishPOI || eqhSwept ||
+               (inPremium && mtf_poi_sensor != NULL && mtf_poi_sensor.GetActiveBearCount() > 0))
             {
                 PrintFormat("[V3 State Machine] %s BEARISH Trend + Opportunity Found. Arming %s for Short Triggers.", EnumToString(m_htf), EnumToString(m_ltf));
                 m_currentState = STATE_LTF_ARMED_SHORT;

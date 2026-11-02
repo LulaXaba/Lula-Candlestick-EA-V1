@@ -18,9 +18,6 @@ struct SLiquidityPool
     datetime sweepTime;    // [Fix #3] When the sweep was detected
 };
 
-// [Fix #3] After this many LTF bars the swept signal expires (prevents stale entries)
-#define SWEEP_EXPIRY_BARS 12
-
 class C_LiquiditySensor
 {
 private:
@@ -28,6 +25,7 @@ private:
     ENUM_TIMEFRAMES     m_tf;
     ENUM_TIMEFRAMES     m_ltf;         // [Fix #3] needed to compute expiry
     SLiquidityPool      m_pools[];
+    int                 m_sweepExpiryBars; // [PATCH L1]
 
     double              m_atrTolerance;
     int                 m_atrHandle;   // [Fix #4] persistent handle
@@ -41,7 +39,7 @@ public:
                         C_LiquiditySensor();
                        ~C_LiquiditySensor();
 
-    bool                Init(string symbol, ENUM_TIMEFRAMES tf, ENUM_TIMEFRAMES ltf = PERIOD_M5);
+    bool                Init(string symbol, ENUM_TIMEFRAMES tf, ENUM_TIMEFRAMES ltf = PERIOD_M5, int sweepExpiryBars = 36);
     void                Update(CZigZagEngine *zigzag_engine);
 
     // Accessors for Decision Tree Execution
@@ -52,22 +50,24 @@ public:
 
 C_LiquiditySensor::C_LiquiditySensor()
     : m_symbol(""), m_tf(PERIOD_CURRENT), m_ltf(PERIOD_M5),
-      m_atrTolerance(0.0), m_atrHandle(INVALID_HANDLE) {}
+      m_atrTolerance(0.0), m_atrHandle(INVALID_HANDLE),
+      m_sweepExpiryBars(36) {}
 
 C_LiquiditySensor::~C_LiquiditySensor()
 {
     if(m_atrHandle != INVALID_HANDLE) IndicatorRelease(m_atrHandle);
 }
 
-bool C_LiquiditySensor::Init(string symbol, ENUM_TIMEFRAMES tf, ENUM_TIMEFRAMES ltf)
+bool C_LiquiditySensor::Init(string symbol, ENUM_TIMEFRAMES tf, ENUM_TIMEFRAMES ltf, int sweepExpiryBars)
 {
-    m_symbol = symbol;
-    m_tf     = tf;
-    m_ltf    = ltf;
+    m_symbol          = symbol;
+    m_tf              = tf;
+    m_ltf             = ltf;
+    m_sweepExpiryBars = sweepExpiryBars;
     ArrayResize(m_pools, 0);
     if(m_atrHandle != INVALID_HANDLE) IndicatorRelease(m_atrHandle);
     m_atrHandle = iATR(m_symbol, m_tf, 14);  // [Fix #4] create once
-    PrintFormat("[V3 Sensor] Liquidity Sensor Initialized: %s", m_symbol);
+    PrintFormat("[V3 Sensor] Liquidity Sensor Initialized: %s (SweepExpiryBars: %d)", m_symbol, m_sweepExpiryBars);
     return true;
 }
 
@@ -176,12 +176,12 @@ void C_LiquiditySensor::CheckForSweeps()
     }
 }
 
-// [Fix #3] Invalidate swept signals older than SWEEP_EXPIRY_BARS LTF bars
+// [Fix #3 / PATCH L1] Invalidate swept signals older than m_sweepExpiryBars LTF bars
 void C_LiquiditySensor::ExpireOldSweeps()
 {
     if(m_ltf == PERIOD_CURRENT) return;
     datetime ltfBarDuration = (datetime)PeriodSeconds(m_ltf);
-    datetime expiry         = ltfBarDuration * SWEEP_EXPIRY_BARS;
+    datetime expiry         = ltfBarDuration * m_sweepExpiryBars;
 
     datetime now = TimeCurrent();
     for(int p = 0; p < ArraySize(m_pools); p++)
@@ -191,7 +191,7 @@ void C_LiquiditySensor::ExpireOldSweeps()
             if((now - m_pools[p].sweepTime) >= expiry)
             {
                 m_pools[p].isSwept  = false; // signal expires — no longer actionable
-                PrintFormat("[V3 Liquidity] Swept signal at %.5f expired after %d bars.", m_pools[p].level, SWEEP_EXPIRY_BARS);
+                PrintFormat("[V3 Liquidity] Swept signal at %.5f expired after %d bars.", m_pools[p].level, m_sweepExpiryBars);
             }
         }
     }
