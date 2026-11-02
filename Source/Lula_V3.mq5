@@ -208,8 +208,13 @@ void OnTick()
     {
         bool renderNow = MQLInfoInteger(MQL_VISUAL_MODE) ? true : newLtfBar;
         if(renderNow)
-            C_VisualRenderer::RenderAll(g_zzHTF, g_zzMTF, g_structureHTF, g_poiSensorMTF,
-                                        _Symbol, inp_MagicNumber);
+            C_VisualRenderer::RenderAll(
+                g_zzHTF, g_zzMTF, g_structureHTF, g_poiSensorMTF,
+                _Symbol, inp_MagicNumber,
+                VIS_RENDER_ALL_SAME_SYMBOL,     // [FIX 4] or VIS_RENDER_CURRENT for max perf
+                inp_MTF,                        // [FIX 3] POIs extend 20×MTF bars
+                false                           // [FIX 5] set true to see mitigated zones in grey
+            );
     }
 
     // ----------------------------------------------------------------
